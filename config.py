@@ -6,7 +6,7 @@ PORT: int = 8001
 GEMINI_KEY: str = os.getenv("GEMINI_API_KEY", "")
 GOOGLE_CLIENT_ID: str = os.getenv(
     "GOOGLE_CLIENT_ID",
-    "776335673676-pvie3ppdt9oe2r6ja7jckb3vqkv523em.apps.googleusercontent.com",
+    "776335673676-dk7od4ljhh43bio4bppf94i8ou0u9v9i.apps.googleusercontent.com",
 )
 
 # Mapeamento oficial das 27 Unidades Federativas do Brasil

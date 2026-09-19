@@ -1,21 +1,21 @@
 # 🇧🇷 Guia do Turista Inteligente (Flask + HTTPX + Google Auth + Gemini AI)
 
-Aplicação web desenvolvida com o microframework **Flask** e Python moderno para orquestração de APIs externas, gerando roteiros de viagem com dados meteorológicos, cálculo de percurso rodoviário e guia turístico & culinário com inteligência artificial.
+Aplicação web desenvolvida com o microframework **Flask** e Python moderno para orquestração de APIs externas com autenticação via **Google Identity Services (OAuth JWT)**, gerando roteiros de viagem com dados meteorológicos, cálculo de percurso rodoviário e guia turístico & culinário com inteligência artificial.
 
 ---
 
 ## 🚀 Como Executar o Projeto Localmente
 
-### 1. Clonar o Repositório
+### 1. Clonar o Repositório e Acessar a Pasta
 
 ```bash
-git clone https://github.com/SEU_USUARIO/guia-turista-inteligente.git
+git clone https://github.com/maykolsampaio/guia-turista-inteligente.git
 cd guia-turista-inteligente
 ```
 
 ---
 
-### 2. Criar e Ativar o Ambiente Virtual (`.venv`)
+## 2. Criar e Ativar o Ambiente Virtual (`.venv`)
 
 === "Linux / macOS"
     ```bash
@@ -44,11 +44,19 @@ pip install -r requirements.txt
 
 Configure as variáveis no seu terminal:
 
-```bash
-export GEMINI_API_KEY="SUA_CHAVE_GEMINI_AQUI"
-export GOOGLE_CLIENT_ID="776335673676-pvie3ppdt9oe2r6ja7jckb3vqkv523em.apps.googleusercontent.com"
-export PORT="8001"
-```
+=== "Linux / macOS"
+    ```bash
+    export GEMINI_API_KEY="SUA_CHAVE_GEMINI_AQUI"
+    export GOOGLE_CLIENT_ID="776335673676-dk7od4ljhh43bio4bppf94i8ou0u9v9i.apps.googleusercontent.com"
+    export PORT="8001"
+    ```
+
+=== "Windows (PowerShell)"
+    ```powershell
+    $env:GEMINI_API_KEY="SUA_CHAVE_GEMINI_AQUI"
+    $env:GOOGLE_CLIENT_ID="776335673676-dk7od4ljhh43bio4bppf94i8ou0u9v9i.apps.googleusercontent.com"
+    $env:PORT="8001"
+    ```
 
 > **Obtenção da Chave Gemini:** Acesse o [Google AI Studio](https://aistudio.google.com/), crie sua chave e defina na variável `GEMINI_API_KEY`.
 
@@ -60,7 +68,7 @@ export PORT="8001"
 python app.py
 ```
 
-Acesse a aplicação no navegador em:
+Acesse a aplicação no navegador em:  
 👉 **`http://localhost:8001`**
 
 ---
@@ -68,12 +76,18 @@ Acesse a aplicação no navegador em:
 ## 📂 Estrutura do Projeto
 
 ```text
-├── app.py                 # Aplicação Flask (Rotas REST: GET /, GET /api/viagens, POST /api/viagens, DELETE /api/viagens/<id>)
-├── config.py              # Constantes, UFs do Brasil e variáveis de ambiente
-├── services.py            # Integrações com APIs externas via HTTPX (Open-Meteo, OSRM, Google OAuth)
-├── planejamento.py        # Módulo de IA Gemini para geração de guia turístico e gastronomia
+├── app.py                 # [A IMPLEMENTAR] Aplicação Flask (Autenticação Google no Python com Sessão, SSR e Rotas)
+├── config.py              # Constantes, UFs do Brasil, Client ID do Google e variáveis de ambiente
+├── services.py            # [A IMPLEMENTAR] Integrações com APIs externas via HTTPX (Open-Meteo, OSRM e validação de token Google OAuth)
+├── planejamento.py        # [A IMPLEMENTAR] Módulo de IA Gemini para geração de guia turístico e gastronomia
 ├── templates/
-│   └── index.html         # Frontend SPA moderno com Google Identity, Cards e Accordion
+│   └── index.html         # Frontend Server-Side Rendering (Jinja2, Google Login URI, Cards e Accordion)
+├── static/
+│   ├── css/style.css      # Estilização responsiva em CSS
+│   ├── js/app.js          # Comportamento de interface (Accordion e bloqueio de cliques)
+│   └── data/
+│       ├── estados_brasil.json # Mapeamento oficial das 27 UFs do Brasil
+│       └── viagens.json        # Persistência em JSON dos roteiros dos usuários logados
 ├── requirements.txt       # Lista de dependências Python
 └── README.md              # Documentação e instruções de execução
 ```

@@ -1,0 +1,14 @@
+{
+  "versao_schema": "1.0",
+  "descricao": "Base consolidada de roteiros turísticos e telemetria por usuário",
+  "atualizado_em": "2026-09-19T00:00:00.000000",
+  "total_usuarios": 0,
+  "total_roteiros": 0,
+  "provedores": {
+    "geocoding": "Open-Meteo Geocoding API",
+    "previsao_tempo": "Open-Meteo Forecast API",
+    "roteamento": "OSRM Routing Engine",
+    "inteligencia_artificial": "Google Gemini (gemini-3.6-flash)"
+  },
+  "usuarios": {}
+}

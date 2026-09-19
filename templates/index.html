@@ -2,255 +2,89 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
   <title>Guia do Turista Inteligente</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   
-  <style>
-    :root {
-      --bg-main: #0b1329;
-      --bg-card: #131f37;
-      --border-color: #27375e;
-      --primary: #38bdf8;
-      --text-main: #f8fafc;
-      --text-muted: #94a3b8;
-    }
+  <!-- CSS Modularizado (Mobile-First / Light Theme) -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-      background: radial-gradient(circle at 50% 0%, #172554 0%, var(--bg-main) 75%);
-      color: var(--text-main);
-      min-height: 100vh;
-      padding: 2.5rem 1rem;
-      line-height: 1.5;
-    }
-
-    .container { max-width: 820px; margin: 0 auto; }
-    
-    .app-header {
-      text-align: center;
-      margin-bottom: 2rem;
-    }
-    .app-header h1 {
-      font-size: 2.2rem;
-      font-weight: 800;
-      background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      margin-bottom: 0.4rem;
-    }
-    .app-header p {
-      color: var(--text-muted);
-      font-size: 0.95rem;
-    }
-
-    .card {
-      background: var(--bg-card);
-      border: 1px solid var(--border-color);
-      border-radius: 16px;
-      padding: 1.6rem;
-      margin-bottom: 1.6rem;
-      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4);
-      backdrop-filter: blur(12px);
-    }
-
-    /* Formulários */
-    .form-title {
-      font-size: 1.25rem;
-      font-weight: 700;
-      margin-bottom: 1.2rem;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      color: #e2e8f0;
-    }
-    .form-label {
-      display: block;
-      font-size: 0.85rem;
-      font-weight: 600;
-      color: #93c5fd;
-      margin-bottom: 6px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    input, select {
-      width: 100%;
-      padding: 0.85rem 1rem;
-      background: #091022;
-      border: 1px solid var(--border-color);
-      border-radius: 10px;
-      color: #fff;
-      font-size: 0.95rem;
-      font-family: inherit;
-      transition: all 0.2s;
-    }
-    input:focus, select:focus {
-      outline: none;
-      border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
-    }
-    .form-row { display: flex; gap: 12px; margin-bottom: 1.1rem; }
-    .form-row input { flex: 3.5; }
-    .form-row select { flex: 1.2; cursor: pointer; }
-
-    /* Botões */
-    button {
-      cursor: pointer;
-      padding: 0.85rem 1.4rem;
-      border-radius: 10px;
-      font-weight: 700;
-      font-size: 0.95rem;
-      border: none;
-      font-family: inherit;
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-    .btn-primary {
-      background: linear-gradient(135deg, #38bdf8 0%, #0284c7 100%);
-      color: #041324;
-      width: 100%;
-      font-size: 1.05rem;
-      box-shadow: 0 4px 14px rgba(56, 189, 248, 0.3);
-    }
-    .btn-primary:hover {
-      background: linear-gradient(135deg, #7dd3fc 0%, #0369a1 100%);
-      transform: translateY(-1px);
-    }
-    
-    .btn-danger {
-      background: rgba(239, 68, 68, 0.15);
-      color: #f87171;
-      border: 1px solid rgba(239, 68, 68, 0.3);
-      padding: 6px 12px;
-      border-radius: 8px;
-      font-size: 0.82rem;
-    }
-    .btn-danger:hover { background: #ef4444; color: #fff; }
-    
-    .btn-maps {
-      background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
-      color: #fff;
-      font-size: 0.82rem;
-      padding: 6px 12px;
-      border-radius: 8px;
-      text-decoration: none;
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      font-weight: 700;
-    }
-    .btn-maps:hover {
-      background: linear-gradient(135deg, #0369a1 0%, #075985 100%);
-    }
-
-    /* Cartão de Viagem */
-    .viagem-card {
-      background: linear-gradient(180deg, #162443 0%, #0e172e 100%);
-      border: 1px solid #2a3d68;
-      border-radius: 16px;
-      padding: 1.4rem;
-      margin-top: 1.4rem;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-      position: relative;
-      overflow: hidden;
-    }
-    .viagem-card::before {
-      content: '';
-      position: absolute;
-      top: 0; left: 0; width: 6px; height: 100%;
-      background: linear-gradient(180deg, #38bdf8 0%, #818cf8 100%);
-    }
-
-    .viagem-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      flex-wrap: wrap;
-      gap: 12px;
-    }
-    .viagem-rota-titulo {
-      font-size: 1.2rem;
-      font-weight: 800;
-      color: #f1f5f9;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    .viagem-rota-seta {
-      color: var(--primary);
-      font-size: 1.1rem;
-    }
-
-    /* Badges de Telemetria e Clima */
-    .telemetria-grid {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin: 0.9rem 0;
-    }
-    .tele-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      background: #0c162d;
-      border: 1px solid #23355b;
-      padding: 5px 10px;
-      border-radius: 8px;
-      font-size: 0.82rem;
-      font-weight: 600;
-      color: #cbd5e1;
-    }
-
-    /* Detalhes e Guia */
-    .viagem-detalhes {
-      margin-top: 1rem;
-      padding-top: 1rem;
-      border-top: 1px dashed #24355a;
-    }
-
-    .secao-guia {
-      background: rgba(23, 37, 84, 0.45);
-      border: 1px solid rgba(96, 165, 250, 0.3);
-      border-radius: 14px;
-      padding: 1.2rem;
-    }
-    .secao-guia-header {
-      font-size: 1rem;
-      font-weight: 700;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 0.8rem;
-      color: #93c5fd;
-    }
-    .guia-texto {
-      color: #e2e8f0;
-      font-size: 0.88rem;
-      line-height: 1.6;
-      white-space: pre-line;
-    }
-  </style>
+  <!-- Google Identity Services SDK -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 
   <div class="container">
-    <div class="app-header">
+    <header class="app-header">
       <h1>🇧🇷 Guia do Turista Brasil</h1>
-      <p>Consultor inteligente de viagens com rotas, clima e guia turístico com inteligência artificial</p>
+      <p>Consultor inteligente de viagens com rotas, clima e guia turístico gerado com Python e IA</p>
+    </header>
+
+    {% if not usuario %}
+    <!-- Bloco de Login com Google (Processado 100% no Python via POST /auth/google/callback) -->
+    <div class="card" style="text-align: center; padding: 2.2rem 1.2rem;">
+      <div style="font-size: 2.4rem; margin-bottom: 0.6rem;">🔒</div>
+      <h2 style="font-size: 1.35rem; font-weight: 800; margin-bottom: 0.4rem; color: var(--text-main);">Autenticação Necessária</h2>
+      <p style="color: var(--text-muted); margin-bottom: 1.6rem; font-size: 0.92rem;">Faça login com sua Conta Google para acessar o planejador de viagens.</p>
+      
+      <!-- Container do Botão Google Renderizado Programaticamente -->
+      <div style="display: flex; justify-content: center; flex-direction: column; align-items: center; gap: 12px;">
+        <div id="googleBtnContainer" style="min-height: 44px; width: 100%; max-width: 280px; display: flex; justify-content: center;">
+          <!-- Fallback enquanto o script carrega -->
+          <div id="g_id_onload"
+               data-client_id="{{ client_id }}"
+               data-callback="tratarLoginGoogle"
+               data-auto_prompt="false">
+          </div>
+          <div class="g_id_signin"
+               data-type="standard"
+               data-size="large"
+               data-theme="outline"
+               data-text="sign_in_with"
+               data-shape="pill"
+               data-logo_alignment="left">
+          </div>
+        </div>
+
+        <div style="margin-top: 0.8rem; border-top: 1px dashed var(--border-color); padding-top: 1rem; width: 100%; max-width: 280px;">
+          <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.6rem;">Ambiente de Teste / Desenvolvimento:</p>
+          <a href="{{ url_for('login_demo') }}" class="btn btn-toggle" style="width: 100%;">
+            👤 Entrar como Visitante
+          </a>
+        </div>
+      </div>
+
+      <!-- Formulário Invisível para Envio do Token JWT para o Backend Python -->
+      <form id="formGoogleLogin" method="POST" action="{{ url_for('google_callback') }}" style="display: none;">
+        <input type="hidden" name="credential" id="inputCredential">
+      </form>
+    </div>
+    {% else %}
+    <!-- Bloco da Aplicação (Liberado após Login com Sessão Flask) -->
+    
+    <!-- Barra de Perfil do Usuário -->
+    <div class="card user-bar">
+      <div class="user-info">
+        <img src="{{ usuario.foto }}" alt="Avatar de {{ usuario.nome }}">
+        <div>
+          <div class="user-name">{{ usuario.nome }}</div>
+          <div class="user-email">{{ usuario.email }}</div>
+        </div>
+      </div>
+      <a href="{{ url_for('logout') }}" class="btn-logout btn">Sair  ➜]</a>
     </div>
 
-    <!-- Formulário de Planejamento -->
+    <!-- Formulário de Planejamento 100% Python/Flask -->
     <div class="card">
       <div class="form-title">🚗 Planejar Novo Roteiro</div>
       
-      <form method="POST" action="/viagens/criar">
-        <label class="form-label">Origem:</label>
+      <form id="formCriarViagem" method="POST" action="{{ url_for('criar_viagem') }}">
+        <label class="form-label" for="origem_cidade">Origem:</label>
         <div class="form-row">
-          <input type="text" name="origem_cidade" placeholder="Cidade de Origem (ex: Recife, Paulistana)" required>
-          <select name="origem_uf" required>
+          <input type="text" id="origem_cidade" name="origem_cidade" placeholder="Cidade de Origem (ex: Recife)" required>
+          <select name="origem_uf" required aria-label="UF de Origem">
             <option value="">UF</option>
             {% for uf in ufs %}
             <option value="{{ uf }}">{{ uf }}</option>
@@ -258,10 +92,10 @@
           </select>
         </div>
 
-        <label class="form-label">Destino:</label>
+        <label class="form-label" for="destino_cidade">Destino:</label>
         <div class="form-row">
-          <input type="text" name="destino_cidade" placeholder="Cidade de Destino (ex: Parnaíba, Salvador)" required>
-          <select name="destino_uf" required>
+          <input type="text" id="destino_cidade" name="destino_cidade" placeholder="Cidade de Destino (ex: Salvador)" required>
+          <select name="destino_uf" required aria-label="UF de Destino">
             <option value="">UF</option>
             {% for uf in ufs %}
             <option value="{{ uf }}">{{ uf }}</option>
@@ -269,38 +103,48 @@
           </select>
         </div>
 
-        <button type="submit" class="btn-primary">Gerar Guia com APIs & IA</button>
+        <button type="submit" id="btnGerarGuia" class="btn btn-primary">Gerar Guia com APIs & IA (Python)</button>
       </form>
     </div>
 
-    <!-- Listagem de Roteiros Renderizados via Jinja2 -->
+    <!-- Listagem de Roteiros Renderizados via Jinja2 no Servidor -->
     <div class="card">
-      <div class="form-title">📍 Seus Roteiros Salvos</div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 8px;">
+        <div class="form-title" style="margin-bottom: 0;">📍 Seus Roteiros Salvos</div>
+        <a href="{{ url_for('ver_viagens_json') }}" target="_blank" rel="noopener noreferrer" class="btn btn-toggle" style="font-size: 0.8rem; padding: 6px 12px; display: inline-flex; align-items: center; gap: 6px; text-decoration: none;" title="Visualizar estrutura e metadados brutos do arquivo JSON de viagens">
+          📄 Ver JSON (API)
+        </a>
+      </div>
       
       {% if viagens %}
         {% for v in viagens %}
-        <div class="viagem-card">
+        <div class="viagem-card" id="card-{{ v.id }}" onclick="alternarCard('{{ v.id }}', event)" title="Clique no cartão para expandir ou recolher o guia">
           <div class="viagem-header">
-            <div class="viagem-rota-titulo">
-              {{ v.origem }} <span class="viagem-rota-seta">➔</span> {{ v.destino }}
+            <div class="viagem-rota-info">
+              <div class="viagem-rota-titulo">
+                {{ v.origem }} <span class="viagem-rota-seta">➔</span> {{ v.destino }}
+                <span id="indicador-{{ v.id }}" class="indicador-accordion">▼</span>
+              </div>
             </div>
-            <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
-              <a href="https://www.google.com/maps/dir/?api=1&origin={{ v.origem }}&destination={{ v.destino }}&travelmode=driving" target="_blank" rel="noopener noreferrer" class="btn-maps">🗺️ Maps</a>
-              <form method="POST" action="/viagens/deletar/{{ v.id }}" style="display:inline;">
-                <button type="submit" class="btn-danger">Excluir</button>
+            <div class="btn-actions" onclick="event.stopPropagation()">
+              <a href="https://www.google.com/maps/dir/?api=1&origin={{ v.origem }}&destination={{ v.destino }}&travelmode=driving" target="_blank" rel="noopener noreferrer" class="btn-maps btn">🗺️ Maps</a>
+              <form method="POST" action="{{ url_for('deletar_viagem', viagem_id=v.id) }}" class="form-deletar">
+                <button type="submit" class="btn-danger btn">Excluir</button>
               </form>
             </div>
           </div>
 
+          <!-- Badges de Telemetria e Clima -->
           <div class="telemetria-grid">
             <span class="tele-badge">🌡️ {{ v.clima.temperatura }}</span>
             <span class="tele-badge">💧 {{ v.clima.umidade }}</span>
             <span class="tele-badge">💨 {{ v.clima.vento }}</span>
-            <span class="tele-badge" style="border-color: rgba(16,185,129,0.3); color:#6ee7b7;">🚗 {{ v.percurso.distancia }}</span>
-            <span class="tele-badge" style="border-color: rgba(139,92,246,0.3); color:#c4b5fd;">⏱️ {{ v.percurso.tempo }}</span>
+            <span class="tele-badge tele-badge-destaque">🚗 {{ v.percurso.distancia }}</span>
+            <span class="tele-badge tele-badge-tempo">⏱️ {{ v.percurso.tempo }}</span>
           </div>
 
-          <div class="viagem-detalhes">
+          <!-- Detalhes do Guia com Accordion -->
+          <div id="detalhes-{{ v.id }}" class="viagem-detalhes hidden" onclick="event.stopPropagation()">
             <div class="secao-guia">
               <div class="secao-guia-header">🏛️ Guia Turístico & Culinária do Destino</div>
               <div class="guia-texto">{{ v.dicas_destino }}</div>
@@ -309,10 +153,54 @@
         </div>
         {% endfor %}
       {% else %}
-        <p style="color: var(--text-muted); text-align: center; padding: 1rem;">Nenhum roteiro salvo ainda. Planeje sua primeira rota acima!</p>
+        <p style="color: var(--text-muted); text-align: center; padding: 1rem; font-size: 0.9rem;">Nenhum roteiro salvo ainda. Planeje sua primeira rota acima!</p>
       {% endif %}
     </div>
+    {% endif %}
+
   </div>
 
+  <!-- JavaScript Modularizado -->
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  
+  <script>
+    // Submete o token retornado pelo Google Identity para validação no Python
+    function tratarLoginGoogle(resposta) {
+      if (resposta && resposta.credential) {
+        document.getElementById("inputCredential").value = resposta.credential;
+        document.getElementById("formGoogleLogin").submit();
+      }
+    }
+
+    // Inicialização programática com renderButton para garantir renderização
+    window.addEventListener("load", function() {
+      const clientId = "{{ client_id }}";
+      if (!clientId) return;
+
+      function renderizarBotao() {
+        if (window.google && window.google.accounts && window.google.accounts.id) {
+          google.accounts.id.initialize({
+            client_id: clientId,
+            callback: tratarLoginGoogle,
+            auto_prompt: false
+          });
+
+          const container = document.getElementById("googleBtnContainer");
+          if (container) {
+            google.accounts.id.renderButton(container, {
+              theme: "outline",
+              size: "large",
+              text: "sign_in_with",
+              shape: "pill",
+              width: 280
+            });
+          }
+        }
+      }
+
+      renderizarBotao();
+      setTimeout(renderizarBotao, 800);
+    });
+  </script>
 </body>
 </html>

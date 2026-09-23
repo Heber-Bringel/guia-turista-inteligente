@@ -163,8 +163,26 @@ def deletar_viagem(viagem_id: str):
 @app.route("/api/viagens", methods=["GET"])
 def ver_viagens_json():
     """Retorna a base consolidada de static/data/viagens.json com suporte dinâmico a visitantes."""
-    # TODO (Aluno 4): Retornar jsonify() da árvore consolidada de viagens
-    pass
+    dados = carregar_dados_viagens_json() or criar_estrutura_padrao_viagens()
+
+    # Mescla as viagens do visitante em memória (se houver sessão ativa)
+    usuario = session.get("usuario")
+    if usuario:
+        user_id: str = usuario.get("id", "")
+        if user_id.startswith("visitante_") and user_id in viagens_visitante_memoria:
+            roteiros_mem = viagens_visitante_memoria[user_id]
+            if roteiros_mem:
+                dados.setdefault("usuarios", {})[user_id] = {
+                    "perfil": usuario,
+                    "metadados": {
+                        "total_roteiros": len(roteiros_mem),
+                        "criado_em": roteiros_mem[0].get("criado_em", ""),
+                        "atualizado_em": roteiros_mem[-1].get("criado_em", ""),
+                    },
+                    "roteiros": roteiros_mem,
+                }
+
+    return jsonify(dados)
 
 
 @app.errorhandler(405)

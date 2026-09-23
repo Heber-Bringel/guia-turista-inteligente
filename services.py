@@ -19,8 +19,23 @@ def verificar_token_google(client: httpx.Client, token: str) -> dict[str, Any] |
     Verifica se o token foi emitido para o GOOGLE_CLIENT_ID configurado no projeto
     e retorna o payload do usuário (sub, name, email, picture) ou None se for inválido.
     """
-    # TODO (Aluno 1): Implementar a validação do token JWT junto à API do Google OAuth2
-    pass
+    try:
+        resposta = client.get(
+            "https://oauth2.googleapis.com/tokeninfo",
+            params={"id_token": token},
+            timeout=4.0,
+        )
+        resposta.raise_for_status()
+        payload: dict[str, Any] = resposta.json()
+
+        # Verifica se o token foi emitido para este projeto (campo 'aud' deve bater com o CLIENT_ID)
+        if payload.get("aud") != GOOGLE_CLIENT_ID:
+            return None
+
+        return payload
+
+    except (httpx.TimeoutException, httpx.HTTPError, Exception):
+        return None
 
 
 def obter_sigla_uf(admin1: str, uf_informada: str = "") -> str:

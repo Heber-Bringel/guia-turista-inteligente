@@ -1,6 +1,7 @@
 # Serviços de integração com APIs externas (Google OAuth, Open-Meteo e OSRM)
 
 import re
+import unicodedata
 from typing import Any
 
 import httpx
@@ -28,8 +29,31 @@ def obter_sigla_uf(admin1: str, uf_informada: str = "") -> str:
     Caso a API retorne um nome completo (ex: 'Piauí'), normaliza para a sigla 'PI'.
     Caso contrário, utiliza a UF informada como fallback se for válida.
     """
-    # TODO (Aluno 1): Implementar a conversão e normalização da UF
-    pass
+
+    def _normalizar(texto: str) -> str:
+        """Remove acentos e converte para minúsculas para comparação robusta."""
+        return unicodedata.normalize("NFD", texto).encode("ascii", "ignore").decode().lower().strip()
+
+    admin1_normalizado = _normalizar(admin1)
+
+    # Monta mapa invertido: nome normalizado → sigla (ex: "piaui" → "PI")
+    mapa_nome_para_sigla = {_normalizar(nome): sigla for sigla, nome in ESTADOS_BRASIL.items()}
+
+    # Tenta encontrar pelo nome normalizado do campo admin1
+    if admin1_normalizado in mapa_nome_para_sigla:
+        return mapa_nome_para_sigla[admin1_normalizado]
+
+    # Fallback: verifica se o próprio admin1 já é uma sigla válida (ex: "PI")
+    admin1_upper = admin1.strip().upper()
+    if admin1_upper in ESTADOS_BRASIL:
+        return admin1_upper
+
+    # Fallback final: usa a UF informada pelo usuário, se válida
+    uf_upper = uf_informada.strip().upper()
+    if uf_upper in ESTADOS_BRASIL:
+        return uf_upper
+
+    return ""
 
 
 def buscar_coordenadas(

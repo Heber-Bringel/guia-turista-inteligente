@@ -158,6 +158,27 @@ def deletar_viagem(viagem_id: str):
 # ==============================================================================
 
 
+def _obter_roteiros_visitante_ativo() -> tuple[str, list[dict[str, Any]]] | None:
+    """Retorna (user_id, roteiros) se houver uma sessão de visitante ativa com viagens em memória.
+
+    Encapsula a verificação em cascata: sessão ativa → é visitante → tem roteiros salvos.
+    Retorna None se qualquer condição não for satisfeita.
+    """
+    usuario = session.get("usuario")
+    if not usuario:
+        return None
+
+    user_id: str = usuario.get("id", "")
+    if not user_id.startswith("visitante_"):
+        return None
+
+    roteiros = viagens_visitante_memoria.get(user_id, [])
+    if not roteiros:
+        return None
+
+    return user_id, roteiros
+
+
 @app.route("/viagens/json", methods=["GET"])
 @app.route("/api/viagens/json", methods=["GET"])
 @app.route("/api/viagens", methods=["GET"])
@@ -166,21 +187,18 @@ def ver_viagens_json():
     dados = carregar_dados_viagens_json() or criar_estrutura_padrao_viagens()
 
     # Mescla as viagens do visitante em memória (se houver sessão ativa)
-    usuario = session.get("usuario")
-    if usuario:
-        user_id: str = usuario.get("id", "")
-        if user_id.startswith("visitante_") and user_id in viagens_visitante_memoria:
-            roteiros_mem = viagens_visitante_memoria[user_id]
-            if roteiros_mem:
-                dados.setdefault("usuarios", {})[user_id] = {
-                    "perfil": usuario,
-                    "metadados": {
-                        "total_roteiros": len(roteiros_mem),
-                        "criado_em": roteiros_mem[0].get("criado_em", ""),
-                        "atualizado_em": roteiros_mem[-1].get("criado_em", ""),
-                    },
-                    "roteiros": roteiros_mem,
-                }
+    visitante = _obter_roteiros_visitante_ativo()
+    if visitante:
+        user_id, roteiros_mem = visitante
+        dados.setdefault("usuarios", {})[user_id] = {
+            "perfil": session["usuario"],
+            "metadados": {
+                "total_roteiros": len(roteiros_mem),
+                "criado_em": roteiros_mem[0].get("criado_em", ""),
+                "atualizado_em": roteiros_mem[-1].get("criado_em", ""),
+            },
+            "roteiros": roteiros_mem,
+        }
 
     return jsonify(dados)
 

@@ -470,28 +470,60 @@ def deletar_viagem(viagem_id: str):
 # ==============================================================================
 
 
+def _obter_roteiros_visitante_ativo() -> tuple[str, list[dict[str, Any]]] | None:
+    """Retorna (user_id, roteiros) se houver uma sessão de visitante ativa com viagens em memória.
+
+    Encapsula a verificação em cascata: sessão ativa → é visitante → tem roteiros salvos.
+    Retorna None se qualquer condição não for satisfeita.
+    """
+    usuario = session.get("usuario")
+    if not usuario:
+        return None
+
+    user_id: str = usuario.get("id", "")
+    if not user_id.startswith("visitante_"):
+        return None
+
+    roteiros = viagens_visitante_memoria.get(user_id, [])
+    if not roteiros:
+        return None
+
+    return user_id, roteiros
+
+
 @app.route("/viagens/json", methods=["GET"])
 @app.route("/api/viagens/json", methods=["GET"])
 @app.route("/api/viagens", methods=["GET"])
 def ver_viagens_json():
-    """Retorna a base consolidada de viagens em formato JSON."""
+    """Retorna a base consolidada de static/data/viagens.json com suporte dinâmico a visitantes."""
+    dados = carregar_dados_viagens_json() or criar_estrutura_padrao_viagens()
 
-    dados = carregar_dados_viagens_json()
+    # Mescla as viagens do visitante em memória (se houver sessão ativa)
+    visitante = _obter_roteiros_visitante_ativo()
+    if visitante:
+        user_id, roteiros_mem = visitante
+        dados.setdefault("usuarios", {})[user_id] = {
+            "perfil": session["usuario"],
+            "metadados": {
+                "total_roteiros": len(roteiros_mem),
+                "criado_em": roteiros_mem[0].get("criado_em", ""),
+                "atualizado_em": roteiros_mem[-1].get("criado_em", ""),
+            },
+            "roteiros": roteiros_mem,
+        }
 
     return jsonify(dados)
 
 
 @app.errorhandler(405)
 def metodo_nao_permitido(error):
-    """Redireciona métodos HTTP não permitidos para a página inicial."""
-
+    """Fallback para acessos GET em rotas POST (ex: digitar /viagens/criar na barra de endereços)."""
     return redirect(url_for("index"))
 
 
 @app.errorhandler(404)
 def pagina_nao_encontrada(error):
-    """Redireciona rotas inexistentes para a página inicial."""
-
+    """Fallback para rotas inexistentes redirecionando suavemente para a página principal."""
     return redirect(url_for("index"))
 
 @app.errorhandler(500)

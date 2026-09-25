@@ -175,7 +175,7 @@ lock_requisicoes = threading.Lock()
 #### `app.py` — Persistência JSON Thread-Safe e Sanitização
 
 ```python
-lock_arquivo_json = threading.Lock()
+lock_arquivo_json = threading.RLock()
 
 def sanitizar_entrada(texto: str, max_len: int = 80) -> str:
     """Remove tags HTML (regex r'<[^>]*>') e caracteres perigosos de controle."""
@@ -197,9 +197,9 @@ def salvar_dados_viagens_json(dados_completos: dict[str, Any]) -> None:
 | **Eixo 2** | Ciclo de Vida HTTP (POST vs GET) | Diferença semântica entre a rota `/` (GET idempotente) e `/viagens/criar` (POST não-idempotente) |
 | **Eixo 2** | Padrão Post/Redirect/Get (PRG) | Por que a rota de criação responde com HTTP 302 redirecionando para a home (evitando reenvio acidental com F5) |
 | **Eixo 2** | Idempotência & Bloqueio de Concorrência | Frontend (desabilitação do botão com spinner) + backend (`threading.Lock`) evitam cliques duplos |
-| **Eixo 2** | Segurança de Sessão | Como `session["usuario"]` persiste o usuário autenticado via cookies criptografados e como funciona o Modo Visitante |
-| **Eixo 5** | Anatomia do Payload JSON | Estrutura hierárquica do arquivo `static/data/viagens.json` (nó raiz com metadados, provedores e nós por usuário) |
-| **Eixo 5** | Leitura e Escrita Thread-Safe | Uso do `threading.Lock()` para prevenir corrupção de dados por concorrência; diferença entre `json.load/json.dump` e `json.loads/json.dumps` |
+| **Eixo 2** | Segurança de Sessão | Como `session["usuario"]` persiste o usuário autenticado via cookies assinados digitalmente (HMAC com SECRET_KEY — legíveis/Base64, mas à prova de adulteração) e como funciona o Modo Visitante |
+| **Eixo 5** | Anatomia do Payload JSON | Estrutura hierárquica do arquivo `static/data/viagens.json` (nó raiz com metadados e provedores; nós de usuários com perfil, metadados e lista de `roteiros` com `geolocalizacao`, `telemetria` e `metadados`) |
+| **Eixo 5** | Leitura e Escrita Thread-Safe | Uso do `threading.RLock()` para prevenir corrupção e race conditions no ciclo ler → alterar → salvar; diferença entre `json.load/json.dump` e `json.loads/json.dumps` |
 | **Eixo 5** | Navegação Defensiva | Uso de `.get()` encadeado com valores padrão para prevenir exceções `KeyError` ao consumir dados aninhados |
 
 ### 🧪 Testes sob responsabilidade

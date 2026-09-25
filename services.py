@@ -107,36 +107,50 @@ def buscar_coordenadas(
 ) -> tuple[float, float, str]:
     """Consulta o Open-Meteo Geocoding com filtro Brasil (country_codes=BR) e timeout=4.0s.
 
-    Retorna a tupla (latitude, longitude, uf_oficial_detectada). Caso a busca falhe,
+    Retorna a tupla (latitude, longitude, nome_formatado). Caso a busca falhe,
     aplica fallback retornando as coordenadas da capital da UF informada.
     """
-    nome_busca = f"{cidade.strip()} {uf.strip()}".strip()
+    cidade_limpa = cidade.strip()
     url = "https://geocoding-api.open-meteo.com/v1/search"
-    params: dict[str, str | int] = {"name": nome_busca, "count": 5, "language": "pt", "country_codes": "BR"}
+    # Consulta pelo nome da cidade (padrão mais compatível da API Open-Meteo para Brasil)
+    params: dict[str, str | int] = {"name": cidade_limpa, "count": 5, "language": "pt", "country_codes": "BR"}
 
     try:
         resposta = client.get(url, params=params, timeout=4.0)
         resposta.raise_for_status()
         resultados = resposta.json().get("results")
 
+        if not resultados and uf:
+            # Fallback de busca com cidade e UF combinadas
+            params["name"] = f"{cidade_limpa} {uf.strip()}"
+            resposta = client.get(url, params=params, timeout=4.0)
+            resposta.raise_for_status()
+            resultados = resposta.json().get("results")
+
         if resultados:
             primeiro = resultados[0]
             lat: float = primeiro.get("latitude", 0.0)
             lon: float = primeiro.get("longitude", 0.0)
+            nome_cidade = str(primeiro.get("name", cidade_limpa))
+            # Remove parênteses como '(Distrito Estadual)'
+            if "(" in nome_cidade:
+                nome_cidade = nome_cidade.split("(")[0].strip()
             admin1: str = primeiro.get("admin1", "")
-            uf_detectada = obter_sigla_uf(admin1, uf)
-            return lat, lon, uf_detectada
+            uf_detectada = obter_sigla_uf(admin1, uf) or uf.strip().upper()
+            nome_formatado = f"{nome_cidade} - {uf_detectada}" if uf_detectada else nome_cidade
+            return lat, lon, nome_formatado
 
     except (httpx.TimeoutException, httpx.HTTPError, Exception):  # noqa: BLE001, S110
         pass
 
     # Fallback: coordenadas da capital da UF informada pelo usuário
     uf_upper = uf.strip().upper()
+    nome_fallback = f"{cidade_limpa} - {uf_upper}" if uf_upper else cidade_limpa
     if uf_upper in _COORDS_CAPITAIS:
         lat_cap, lon_cap = _COORDS_CAPITAIS[uf_upper]
-        return lat_cap, lon_cap, uf_upper
+        return lat_cap, lon_cap, nome_fallback
 
-    return 0.0, 0.0, f"{cidade.strip()} - {uf.strip()}"
+    return 0.0, 0.0, nome_fallback
 
 
 # ==============================================================================

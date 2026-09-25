@@ -3,11 +3,17 @@
 import json
 import os
 import re
+import sys
 import threading
 import time
 import uuid
 from datetime import datetime
 from typing import Any
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
 
 import httpx
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
@@ -294,15 +300,16 @@ def google_callback():
 def login_demo():
     """Cria uma sessão temporária para o visitante."""
 
-    user_id = f"visitante-{uuid.uuid4().hex}"
+    user_id = f"visitante_{uuid.uuid4().hex}"
 
     session.clear()
 
     session["usuario"] = {
         "id": user_id,
         "nome": "Viajante Convidado",
-        "email": "",
-        "picture": "",
+        "email": "visitante@demo.local",
+        "foto": "https://lh3.googleusercontent.com/a/default-user=s96-c",
+        "picture": "https://lh3.googleusercontent.com/a/default-user=s96-c",
         "visitante": True,
     }
 
@@ -481,7 +488,7 @@ def _obter_roteiros_visitante_ativo() -> tuple[str, list[dict[str, Any]]] | None
         return None
 
     user_id: str = usuario.get("id", "")
-    if not user_id.startswith("visitante_"):
+    if not (user_id.startswith("visitante_") or user_id.startswith("visitante-")):
         return None
 
     roteiros = viagens_visitante_memoria.get(user_id, [])

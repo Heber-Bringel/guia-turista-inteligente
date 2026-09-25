@@ -23,11 +23,12 @@ os.environ["GEMINI_API_KEY"] = ""  # sem chave -> guia de contingência imediato
 
 import app as aplicacao
 
+# Coordenadas com 5 casas decimais, como devolve a API real (a tabela de capitais do fallback usa 3)
 CIDADES = {
-    "teresina": (-5.089, -42.801, "Piauí"),
-    "fortaleza": (-3.717, -38.543, "Ceará"),
-    "salvador": (-12.972, -38.501, "Bahia"),
-    "recife": (-8.054, -34.881, "Pernambuco"),
+    "teresina": (-5.08917, -42.80194, "Piauí"),
+    "fortaleza": (-3.71722, -38.54306, "Ceará"),
+    "salvador": (-12.97111, -38.51083, "Bahia"),
+    "recife": (-8.05389, -34.88111, "Pernambuco"),
 }
 
 
@@ -187,6 +188,39 @@ class FluxoWebTest(unittest.TestCase):
         _limpar_estado_memoria()  # simula reinício do servidor com o cookie ainda válido
         c.post("/viagens/criar", data=FORM)
         self.assertFalse(self.json.exists() and any(k.startswith("visitante") for k in self.dados()["usuarios"]))
+
+    # --- metadados do roteiro ----------------------------------------------------------------
+    def test_metadados_da_ia_refletem_o_diagnostico(self):
+        self.cliente_logado().post("/viagens/criar", data=FORM)
+        roteiro = self.dados()["usuarios"]["user1"]["roteiros"][-1]
+        ia = roteiro["metadados"]["status_servicos"]["inteligencia_artificial"]
+        diag = roteiro["diagnostico_ia"]
+        self.assertTrue(diag["fallback_utilizado"])  # sem chave configurada -> contingência
+        self.assertEqual(ia["status"], "fallback")
+        self.assertTrue(ia["fallback_utilizado"])
+        self.assertEqual(ia["modelo"], diag["modelo"])
+
+    def test_geocoding_marca_fallback_quando_cidade_nao_e_encontrada(self):
+        form = {**FORM, "origem_cidade": "Cidadeinexistente"}
+        self.cliente_logado().post("/viagens/criar", data=form)
+        servicos = self.dados()["usuarios"]["user1"]["roteiros"][-1]["metadados"]["status_servicos"]
+        self.assertEqual(servicos["geocoding_origem"]["status"], "fallback")
+        self.assertEqual(servicos["geocoding_destino"]["status"], "sucesso")
+
+    def test_uf_divergente_e_corrigida_na_geolocalizacao(self):
+        self.cliente_logado().post("/viagens/criar", data={**FORM, "origem_uf": "RJ"})
+        roteiro = self.dados()["usuarios"]["user1"]["roteiros"][-1]
+        self.assertEqual(roteiro["origem"], "Teresina - PI")
+        self.assertEqual(roteiro["geolocalizacao"]["origem"]["uf"], "PI")
+
+    # --- visitante: avatar -------------------------------------------------------------------
+    def test_visitante_possui_avatar_valido(self):
+        c = aplicacao.app.test_client()
+        c.get("/auth/demo")
+        with c.session_transaction() as s:
+            foto = s["usuario"]["foto"]
+        self.assertTrue(foto)
+        self.assertEqual(c.get(foto).status_code, 200)
 
     # --- login Google ------------------------------------------------------------------------
     def test_callback_google_sem_token_volta_para_home(self):

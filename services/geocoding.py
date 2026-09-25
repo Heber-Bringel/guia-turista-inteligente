@@ -112,3 +112,14 @@ def buscar_coordenadas(
         return lat_cap, lon_cap, uf_upper
 
     return 0.0, 0.0, f"{cidade.strip()} - {uf.strip()}"
+
+
+def eh_coordenada_de_fallback(lat: float, lon: float, uf: str) -> bool:
+    """Indica se as coordenadas vieram do fallback de `buscar_coordenadas` (cidade não localizada).
+
+    O fallback devolve as coordenadas da capital da UF (ou 0.0, 0.0 quando nem a UF é conhecida),
+    então a coordenada exata da capital só ocorre quando a busca falhou.
+    """
+    if lat == 0.0 and lon == 0.0:
+        return True
+    return _COORDS_CAPITAIS.get(uf.strip().upper()) == (lat, lon)

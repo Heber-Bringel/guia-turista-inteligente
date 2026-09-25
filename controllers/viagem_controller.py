@@ -14,6 +14,7 @@ from controllers.validacao import sanitizar_entrada
 from models.viagem_repository import adicionar_viagem_usuario, remover_viagem_usuario
 from services import (
     buscar_coordenadas,
+    eh_coordenada_de_fallback,
     obter_clima,
     obter_guia_destino_com_diagnostico,
     obter_percurso,
@@ -25,6 +26,16 @@ viagens_bp = Blueprint("viagens", __name__)
 requisicoes_ativas: set[str] = set()
 requisicoes_recentes: dict[str, float] = {}
 lock_requisicoes = threading.Lock()
+
+
+def _status_geocoding(lat: float, lon: float, uf: str) -> dict[str, str]:
+    """Descreve no metadado se as coordenadas foram localizadas ou vieram do fallback (capital da UF)."""
+    if eh_coordenada_de_fallback(lat, lon, uf):
+        return {
+            "status": "fallback",
+            "mensagem": "Cidade não localizada; usadas as coordenadas da capital da UF",
+        }
+    return {"status": "sucesso", "mensagem": "Coordenadas localizadas"}
 
 
 def _gerar_roteiro(
@@ -73,7 +84,7 @@ def _gerar_roteiro(
             dicas_destino, diagnostico_ia = res_ia
         else:
             dicas_destino = str(res_ia or "Guia temporariamente indisponível.")
-            diagnostico_ia = {"status": "fallback", "fallback": True}
+            diagnostico_ia = {"status": "fallback", "modelo": "indisponível", "fallback_utilizado": True}
         agora_iso = datetime.now(timezone.utc).isoformat()
         viagem = {
             "id": uuid.uuid4().hex[:8],
@@ -105,22 +116,12 @@ def _gerar_roteiro(
             "metadados": {
                 "status_requisicao": "sucesso",
                 "status_servicos": {
-                    "geocoding_origem": {
-                        "status": "sucesso" if lat_origem else "fallback",
-                        "mensagem": "Coordenadas localizadas",
-                    },
-                    "geocoding_destino": {
-                        "status": "sucesso" if lat_destino else "fallback",
-                        "mensagem": "Coordenadas localizadas",
-                    },
+                    "geocoding_origem": _status_geocoding(lat_origem, lon_origem, uf_origem_final),
+                    "geocoding_destino": _status_geocoding(lat_destino, lon_destino, uf_destino_final),
                     "inteligencia_artificial": {
-                        "status": "sucesso" if diagnostico_ia else "fallback",
-                        "modelo": "gemini-3.6-flash",
-                        "fallback_utilizado": (
-                            diagnostico_ia.get("fallback", False)
-                            if isinstance(diagnostico_ia, dict)
-                            else False
-                        ),
+                        "status": diagnostico_ia.get("status", "fallback"),
+                        "modelo": diagnostico_ia.get("modelo", ""),
+                        "fallback_utilizado": diagnostico_ia.get("fallback_utilizado", False),
                     },
                 },
             },

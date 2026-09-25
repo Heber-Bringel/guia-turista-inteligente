@@ -3,13 +3,18 @@
 from services.clima import obter_clima
 from services.contingencia import gerar_guia_contingencia
 from services.gemini import obter_guia_destino, obter_guia_destino_com_diagnostico
-from services.geocoding import buscar_coordenadas, obter_sigla_uf
+from services.geocoding import (
+    buscar_coordenadas,
+    eh_coordenada_de_fallback,
+    obter_sigla_uf,
+)
 from services.google_auth import verificar_token_google
 from services.rotas import obter_percurso
 from services.sanitizacao import limpar_formato_texto
 
 __all__ = [
     "buscar_coordenadas",
+    "eh_coordenada_de_fallback",
     "gerar_guia_contingencia",
     "limpar_formato_texto",
     "obter_clima",

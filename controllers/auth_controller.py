@@ -50,12 +50,14 @@ def login_demo():
 
     session.clear()
 
+    avatar = url_for("static", filename="img/visitante.svg")
+
     session["usuario"] = {
         "id": user_id,
         "nome": "Viajante Convidado",
         "email": "",
-        "foto": "",
-        "picture": "",
+        "foto": avatar,
+        "picture": avatar,
         "visitante": True,
     }
 

@@ -82,14 +82,16 @@ def buscar_coordenadas(
 
 ### 🎤 Eixos de Arguição Oral (Apresentação)
 
-| Eixo | Tópico | O que explicar |
+| Eixo | Tópico | Resposta |
 |------|--------|----------------|
-| **Eixo 3** | Consumo de APIs REST com HTTPX & Resiliência | Por que usar `with httpx.Client() as client` (connection pooling e reaproveitamento TCP/TLS) |
-| **Eixo 3** | Timeouts Defensivos | Justificar os limites de tempo nas chamadas de rede para evitar travamentos do servidor |
-| **Eixo 4** | Geocodificação e Correção de UF | Consulta com `country_codes=BR` e detecção da UF real pelo campo `admin1` |
-| **Eixo 4** | Validação de Token JWT | Como a credencial do Google Identity Services é validada no endpoint `/tokeninfo` conferindo o campo `aud` |
-| **Eixo 5** | Endpoint REST `/viagens/json` | Retorno do JSON consolidado com `Content-Type: application/json` |
-| **Eixo 5** | Tratamento Global de Erros | `@app.errorhandler(404)` e `@app.errorhandler(405)` redirecionando suavemente para `/` |
+| **Eixo 3** | Consumo de APIs REST com HTTPX & Resiliência | Chamadas soltas (`httpx.get`) criam um cliente por requisição e refazem o handshake TCP e TLS a cada vez. O `with httpx.Client() as client` mantém um **pool de conexões keep-alive** por host e reaproveita a conexão (as duas buscas de geocoding vão ao mesmo host); ao sair do bloco fecha tudo, mesmo se houver exceção. O cliente é passado como parâmetro para cada função de serviço. |
+| **Eixo 3** | Timeouts Defensivos | Uma API lenta prende a thread do servidor e o usuário fica esperando. Por isso toda chamada tem timeout explícito e, se falhar, devolve um **fallback** (capital da UF, `N/D`, “Sem rota direta”, guia de contingência): **4 s** em geocoding, clima e `tokeninfo`; **6 s** no OSRM e no Gemini. No navegador o botão é liberado sozinho após 12 s. |
+| **Eixo 4** | Geocodificação e Correção de UF | A busca vai só com o nome da cidade e o filtro de país **`countryCode=BR`** (evita homônimos, como a Teresina da Polônia; a API ignora o nome `country_codes`). O `admin1` vem como nome do estado, e `obter_sigla_uf` remove acentos e converte `"Piauí"` em `"PI"`. Fica o candidato da UF digitada ou, se nenhum bater, o primeiro: assim *Teresina / RJ* vira *Teresina - PI*. |
+| **Eixo 4** | Validação de Token JWT | O navegador devolve a `credential` (um JWT) e o servidor a envia ao endpoint oficial `oauth2.googleapis.com/tokeninfo`, onde o Google valida assinatura e expiração. Depois conferimos se o campo **`aud`** é igual ao nosso `GOOGLE_CLIENT_ID`, o que garante que o token foi emitido **para o nosso app**. Só então lemos `sub`, `name`, `email` e `picture` e abrimos a sessão; qualquer falha devolve `None`. |
+| **Eixo 5** | Endpoint REST `/viagens/json` | `GET /viagens/json` (com os aliases `/api/viagens` e `/api/viagens/json`) responde com `jsonify(...)`, ou seja, `Content-Type: application/json`. A função `montar_payload_consolidado` lê o `viagens.json`, mescla os roteiros do visitante (que só existem em memória) e recalcula os totais. |
+| **Eixo 5** | Tratamento Global de Erros | Os handlers de **404** (rota inexistente) e **405** (método não permitido, como um GET em `/viagens/criar`) respondem com redirecionamento 302 para `/`, em vez de mostrar página de erro. Com Blueprint usamos `@api_bp.app_errorhandler`, o equivalente de `@app.errorhandler`: vale para o aplicativo inteiro. |
+
+> Explicação completa e trechos de código de cada ponto: [Roteiro de Apresentação](README.md#-roteiro-de-apresentação).
 
 ### 🧪 Testes sob responsabilidade
 
@@ -148,12 +150,14 @@ def obter_guia_destino(destino: str) -> str:
 
 ### 🎤 Eixos de Arguição Oral (Apresentação)
 
-| Eixo | Tópico | O que explicar |
+| Eixo | Tópico | Resposta |
 |------|--------|----------------|
-| **Eixo 1** | Tipagem Estática & Qualidade de Código | Assinaturas modernas Python 3.10+ (`tuple[float, float, str]`, `dict[str, Any] | None`), validação com `ruff check .` e `mypy .` |
-| **Eixo 1** | Telemetria de Clima e Rotas | Consumo das APIs Open-Meteo Weather e OSRM; conversão de metros → km (`round(m/1000, 1)`) e segundos → horas/minutos |
-| **Eixo 6** | Engenharia de Prompt | Restrições no prompt para forçar respostas em texto puro com emojis, sem asteriscos ou Markdown |
-| **Eixo 6** | Sanitização Regex & Fallback da IA | Função `limpar_formato_texto()`, isolamento em `ThreadPoolExecutor(timeout=6.0s)` e disparo do guia de contingência |
+| **Eixo 1** | Tipagem Estática & Qualidade de Código | Usamos `tuple[...]`, `dict[...]` e `list[...]` direto (PEP 585) e `X \| None` no lugar de `Optional` (PEP 604). `tuple[float, float, str]` é uma tupla de tamanho fixo (latitude, longitude, UF); `dict[str, Any] \| None` é o payload do Google ou `None` se o token for inválido. O Python ignora as anotações ao rodar: quem as verifica é o **mypy**, e o **ruff** aponta más práticas. Resultado: `ruff check .` → `All checks passed!` e `mypy .` → `Success`. |
+| **Eixo 1** | Telemetria de Clima e Rotas | A Open-Meteo Forecast (sem chave, 4 s) traz temperatura, umidade e vento. O OSRM (6 s) calcula a rota de carro, com a **longitude primeiro** na URL, e se o destino ficar a mais de 10 km de uma estrada (ilhas) devolve “Sem rota direta”. Conversões: `round(m/1000, 1)` para km; `horas = s // 3600` e `minutos = round((s % 3600) / 60)`, com ajuste quando dá 60, formatando `2h 30min de carro`. |
+| **Eixo 6** | Engenharia de Prompt | O front exibe o texto cru e não interpreta Markdown, então o prompt define persona, 4 títulos fixos com emoji, 1 a 2 frases por item e um bloco de **regras de formato**: proíbe `*`, `**`, `#`, `_`, crases, saudações e despedidas, e manda começar pelo primeiro título. A chamada usa `thinking_budget=0` e `max_output_tokens=650` para caber no tempo limite. |
+| **Eixo 6** | Sanitização Regex & Fallback da IA | `limpar_formato_texto()` remove crases, converte listas em `•` e tira títulos `#`, negrito, itálico, a saudação da primeira linha e a despedida da última (a ordem importa). O Gemini roda numa thread com `future.result(timeout=6.0)` e o executor é encerrado com `shutdown(wait=False)`, então a resposta sai em 6 s. Chave vazia, timeout ou qualquer exceção acionam o **guia de contingência** (base curada ou guia genérico), com o badge “Modo Contingência”. |
+
+> Explicação completa e trechos de código de cada ponto: [Roteiro de Apresentação](README.md#-roteiro-de-apresentação).
 
 ### 🧪 Testes sob responsabilidade
 
@@ -207,15 +211,17 @@ def salvar_dados_viagens_json(dados_completos: dict[str, Any]) -> None:
 
 ### 🎤 Eixos de Arguição Oral (Apresentação)
 
-| Eixo | Tópico | O que explicar |
+| Eixo | Tópico | Resposta |
 |------|--------|----------------|
-| **Eixo 2** | Ciclo de Vida HTTP (POST vs GET) | Diferença semântica entre a rota `/` (GET idempotente) e `/viagens/criar` (POST não-idempotente) |
-| **Eixo 2** | Padrão Post/Redirect/Get (PRG) | Por que a rota de criação responde com HTTP 302 redirecionando para a home (evitando reenvio acidental com F5) |
-| **Eixo 2** | Idempotência & Bloqueio de Concorrência | Frontend (desabilitação do botão com spinner) + backend (`threading.Lock`) evitam cliques duplos |
-| **Eixo 2** | Segurança de Sessão | Como `session["usuario"]` persiste o usuário autenticado via cookies assinados digitalmente (HMAC com SECRET_KEY — legíveis/Base64, mas à prova de adulteração) e como funciona o Modo Visitante |
-| **Eixo 5** | Anatomia do Payload JSON | Estrutura hierárquica do arquivo `static/data/viagens.json` (nó raiz com metadados e provedores; nós de usuários com perfil, metadados e lista de `roteiros` com `geolocalizacao`, `telemetria` e `metadados`) |
-| **Eixo 5** | Leitura e Escrita Thread-Safe | Uso do `threading.RLock()` para prevenir corrupção e race conditions no ciclo ler → alterar → salvar; diferença entre `json.load/json.dump` e `json.loads/json.dumps` |
-| **Eixo 5** | Navegação Defensiva | Uso de `.get()` encadeado com valores padrão para prevenir exceções `KeyError` ao consumir dados aninhados |
+| **Eixo 2** | Ciclo de Vida HTTP (POST vs GET) | `GET /` só lê e renderiza: é seguro e **idempotente** (pode repetir, cachear e favoritar). `POST /viagens/criar` cria um roteiro novo a cada execução, então **não é idempotente**; por isso só aceita POST, com os dados no corpo, e um GET nessa rota cai no 405 e volta para `/`. |
+| **Eixo 2** | Padrão Post/Redirect/Get (PRG) | Se o POST renderizasse a página, o F5 reenviaria o formulário e duplicaria o roteiro. No PRG o servidor processa o POST e responde **`302 Found`** para `/`; o navegador faz um GET, e o F5 só repete esse GET. Vale para criar, excluir e login. |
+| **Eixo 2** | Idempotência & Bloqueio de Concorrência | São duas camadas. No front, a flag `submetido` desabilita o botão (com spinner) e cancela o segundo envio. No back, que é quem realmente garante, a chave `usuário\|origem\|uf\|destino\|uf` é registrada em `requisicoes_ativas` e `requisicoes_recentes` (janela de 10 s), e o `threading.Lock` torna o “verificar e registrar” atômico. Com 5 POSTs simultâneos, só 1 roteiro é criado. |
+| **Eixo 2** | Segurança de Sessão | `session["usuario"]` fica em um **cookie assinado** com a `SECRET_KEY` (HMAC): o conteúdo é legível (base64), mas não pode ser alterado sem a chave. A cada requisição o Flask confere a assinatura e reconstrói a sessão. No **Modo Visitante** (`/auth/demo`) o id é `visitante-<uuid>`, os roteiros ficam só em memória (nunca no JSON) e o logout apaga tudo. |
+| **Eixo 5** | Anatomia do Payload JSON | Nó raiz com `versao_schema`, `atualizado_em`, `total_usuarios` e `total_roteiros`; catálogo `provedores`; e `usuarios`, indexado pelo id do usuário. Cada usuário tem `perfil`, `metadados` e a lista `roteiros`; cada roteiro traz `geolocalizacao`, `telemetria` (clima e percurso), `dicas_destino`, `diagnostico_ia` e `metadados.status_servicos`. Visitantes não aparecem no arquivo. |
+| **Eixo 5** | Leitura e Escrita Thread-Safe | Várias threads usam o mesmo arquivo; sem lock, duas requisições leem a mesma versão e a última a gravar apaga a da outra. O `RLock` (reentrante, porque a função que segura o lock chama outras que também o adquirem) envolve o ciclo inteiro *ler → alterar → salvar*. `json.load/json.dump` trabalham com **arquivo**; `json.loads/json.dumps`, com **string**. O teste de 10 gravações simultâneas salva as 10. |
+| **Eixo 5** | Navegação Defensiva | `dados["usuarios"][id]["roteiros"]` lança `KeyError` se algum nível faltar. Com `.get(chave, padrão)` encadeado (`dados.get("usuarios", {})` → `usuarios.get(id, {})` → `usuario.get("roteiros")`) e `isinstance` a cada nível, um dado ausente ou corrompido vira uma lista vazia e a página não quebra. Também aceita a chave legada `viagens`. |
+
+> Explicação completa e trechos de código de cada ponto: [Roteiro de Apresentação](README.md#-roteiro-de-apresentação).
 
 ### 🧪 Testes sob responsabilidade
 

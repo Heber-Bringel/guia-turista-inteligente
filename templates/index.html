@@ -50,14 +50,14 @@
 
         <div style="margin-top: 0.8rem; border-top: 1px dashed var(--border-color); padding-top: 1rem; width: 100%; max-width: 280px;">
           <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.6rem;">Ambiente de Teste / Desenvolvimento:</p>
-          <a href="{{ url_for('login_demo') }}" class="btn btn-toggle" style="width: 100%;">
+          <a href="{{ url_for('auth.login_demo') }}" class="btn btn-toggle" style="width: 100%;">
             👤 Entrar como Visitante
           </a>
         </div>
       </div>
 
       <!-- Formulário Invisível para Envio do Token JWT para o Backend Python -->
-      <form id="formGoogleLogin" method="POST" action="{{ url_for('google_callback') }}" style="display: none;">
+      <form id="formGoogleLogin" method="POST" action="{{ url_for('auth.google_callback') }}" style="display: none;">
         <input type="hidden" name="credential" id="inputCredential">
       </form>
     </div>
@@ -73,14 +73,14 @@
           <div class="user-email">{{ usuario.email }}</div>
         </div>
       </div>
-      <a href="{{ url_for('logout') }}" class="btn-logout btn">Sair  ➜]</a>
+      <a href="{{ url_for('auth.logout') }}" class="btn-logout btn">Sair  ➜]</a>
     </div>
 
     <!-- Formulário de Planejamento 100% Python/Flask -->
     <div class="card">
       <div class="form-title">🚗 Planejar Novo Roteiro</div>
       
-      <form id="formCriarViagem" method="POST" action="{{ url_for('criar_viagem') }}">
+      <form id="formCriarViagem" method="POST" action="{{ url_for('viagens.criar_viagem') }}">
         <label class="form-label" for="origem_cidade">Origem:</label>
         <div class="form-row">
           <input type="text" id="origem_cidade" name="origem_cidade" placeholder="Cidade de Origem (ex: Recife)" required>
@@ -111,7 +111,7 @@
     <div class="card">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 8px;">
         <div class="form-title" style="margin-bottom: 0;">📍 Seus Roteiros Salvos</div>
-        <a href="{{ url_for('ver_viagens_json') }}" target="_blank" rel="noopener noreferrer" class="btn btn-toggle" style="font-size: 0.8rem; padding: 6px 12px; display: inline-flex; align-items: center; gap: 6px; text-decoration: none;" title="Visualizar estrutura e metadados brutos do arquivo JSON de viagens">
+        <a href="{{ url_for('api.ver_viagens_json') }}" target="_blank" rel="noopener noreferrer" class="btn btn-toggle" style="font-size: 0.8rem; padding: 6px 12px; display: inline-flex; align-items: center; gap: 6px; text-decoration: none;" title="Visualizar estrutura e metadados brutos do arquivo JSON de viagens">
           📄 Ver JSON (API)
         </a>
       </div>
@@ -128,7 +128,7 @@
             </div>
             <div class="btn-actions" onclick="event.stopPropagation()">
               <a href="https://www.google.com/maps/dir/?api=1&origin={{ v.origem }}&destination={{ v.destino }}&travelmode=driving" target="_blank" rel="noopener noreferrer" class="btn-maps btn">🗺️ Maps</a>
-              <form method="POST" action="{{ url_for('deletar_viagem', viagem_id=v.id) }}" class="form-deletar">
+              <form method="POST" action="{{ url_for('viagens.deletar_viagem', viagem_id=v.id) }}" class="form-deletar">
                 <button type="submit" class="btn-danger btn">Excluir</button>
               </form>
             </div>

@@ -121,11 +121,21 @@ Acesse no navegador: 👉 **`http://localhost:8001`**
 
 ```text
 guia-turista-inteligente/
-├── app.py                  # [A IMPLEMENTAR] Rotas Flask, sessões, persistência JSON e fallbacks
+├── app.py                  # Fábrica da aplicação Flask (create_app) e registro dos controllers
+├── models/                 # M — Model
+│   └── viagem_repository.py    # Persistência JSON thread-safe (RLock) e visitantes em memória
+├── controllers/            # C — Controllers (Blueprints do Flask)
+│   ├── main_controller.py      # GET /  (página principal)
+│   ├── auth_controller.py      # Login Google, modo visitante e logout
+│   ├── viagem_controller.py    # Criar/deletar roteiros (PRG + idempotência)
+│   ├── api_controller.py       # GET /viagens/json e handlers 404/405/500
+│   └── validacao.py            # Sanitização de entradas
+├── tests/
+│   └── test_fluxo_web.py       # Testes do fluxo web (offline, APIs externas simuladas)
 ├── config.py               # Constantes, portas, chaves e catálogo de UFs
-├── services.py             # [A IMPLEMENTAR] Integrações HTTPX: Google OAuth, Geocoding, Clima e OSRM
-├── planejamento.py         # [A IMPLEMENTAR] Gemini AI: geração de guia turístico e fallback
-├── templates/
+├── services.py             # Serviços: integrações HTTPX (Google OAuth, Geocoding, Clima e OSRM)
+├── planejamento.py         # Serviço de IA: Gemini, sanitização regex e guia de contingência
+├── templates/              # V — View
 │   └── index.html          # Template Jinja2 (SSR, Google Login, Formulário e Cards)
 ├── static/
 │   ├── css/style.css       # Estilização responsiva mobile-first
@@ -162,5 +172,8 @@ guia-turista-inteligente/
 ruff check . --fix
 
 # Checagem estática de tipos
-mypy app.py services.py planejamento.py config.py
+mypy .
+
+# Testes do fluxo web (offline)
+python -m unittest discover -s tests -v
 ```

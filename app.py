@@ -8,6 +8,7 @@ Arquitetura MVC:
 """
 
 import os
+import sys
 
 from flask import Flask
 
@@ -26,5 +27,11 @@ def create_app() -> Flask:
 app = create_app()
 
 if __name__ == "__main__":
+    # Consoles Windows com codificação legada (cp1252) não representam emojis: em vez de derrubar o
+    # servidor com UnicodeEncodeError, o caractere não suportado é substituído por "?".
+    for fluxo in (sys.stdout, sys.stderr):
+        if hasattr(fluxo, "reconfigure"):
+            fluxo.reconfigure(errors="replace")
+
     print(f"🌍 Servidor Flask Guia do Turista rodando em http://localhost:{PORT}")
     app.run(host="0.0.0.0", port=PORT, debug=True)

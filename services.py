@@ -113,7 +113,12 @@ def buscar_coordenadas(
     """
     nome_busca = f"{cidade.strip()} {uf.strip()}".strip()
     url = "https://geocoding-api.open-meteo.com/v1/search"
-    params = {"name": nome_busca, "count": 5, "language": "pt", "country_codes": "BR"}
+    params: dict[str, str | int] = {
+        "name": nome_busca,
+        "count": 5,
+        "language": "pt",
+        "country_codes": "BR",
+    }
 
     try:
         resposta = client.get(url, params=params, timeout=4.0)

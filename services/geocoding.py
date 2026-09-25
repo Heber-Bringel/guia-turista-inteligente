@@ -1,41 +1,11 @@
-# Serviços de integração com APIs externas (Google OAuth, Open-Meteo e OSRM)
+"""Serviço de geocodificação (Open-Meteo Geocoding) e normalização da UF."""
 
-import re
 import unicodedata
 from typing import Any
 
 import httpx
 
-from config import ESTADOS_BRASIL, GOOGLE_CLIENT_ID
-
-# ==============================================================================
-# 👤 RESPONSABILIDADE DO ALUNO 1: APIs REST, Autenticação JWT e Geocodificação
-# ==============================================================================
-
-
-def verificar_token_google(client: httpx.Client, token: str) -> dict[str, Any] | None:
-    """Valida o token JWT no endpoint oficial 'https://oauth2.googleapis.com/tokeninfo'.
-
-    Verifica se o token foi emitido para o GOOGLE_CLIENT_ID configurado no projeto
-    e retorna o payload do usuário (sub, name, email, picture) ou None se for inválido.
-    """
-    try:
-        resposta = client.get(
-            "https://oauth2.googleapis.com/tokeninfo",
-            params={"id_token": token},
-            timeout=4.0,
-        )
-        resposta.raise_for_status()
-        payload: dict[str, Any] = resposta.json()
-
-        # Verifica se o token foi emitido para este projeto (campo 'aud' deve bater com o CLIENT_ID)
-        if payload.get("aud") != GOOGLE_CLIENT_ID:
-            return None
-
-        return payload
-
-    except (httpx.TimeoutException, httpx.HTTPError, Exception):
-        return None
+from config import ESTADOS_BRASIL
 
 
 def obter_sigla_uf(admin1: str, uf_informada: str = "") -> str:
@@ -103,21 +73,36 @@ _COORDS_CAPITAIS: dict[str, tuple[float, float]] = {
 }
 
 
+def _escolher_resultado(resultados: list[dict[str, Any]], uf: str) -> dict[str, Any]:
+    """Escolhe entre os candidatos da API o que pertence à UF informada (via `admin1`).
+
+    Se nenhum candidato estiver na UF digitada, devolve o primeiro (o mais relevante para a API):
+    é assim que uma UF errada (ex: Teresina / RJ) acaba corrigida pela UF real da cidade.
+    """
+    uf_informada = uf.strip().upper()
+    for candidato in resultados:
+        if obter_sigla_uf(str(candidato.get("admin1", ""))) == uf_informada:
+            return candidato
+    return resultados[0]
+
+
 def buscar_coordenadas(
     client: httpx.Client, cidade: str, uf: str = ""
 ) -> tuple[float, float, str]:
-    """Consulta o Open-Meteo Geocoding com filtro Brasil (country_codes=BR) e timeout=4.0s.
+    """Consulta o Open-Meteo Geocoding com filtro Brasil (countryCode=BR) e timeout=4.0s.
 
-    Retorna a tupla (latitude, longitude, uf_oficial_detectada). Caso a busca falhe,
-    aplica fallback retornando as coordenadas da capital da UF informada.
+    Retorna a tupla (latitude, longitude, uf_oficial_detectada). A UF vem do campo `admin1` do
+    resultado escolhido. Caso a busca falhe, aplica fallback retornando as coordenadas da capital
+    da UF informada.
     """
-    nome_busca = f"{cidade.strip()} {uf.strip()}".strip()
     url = "https://geocoding-api.open-meteo.com/v1/search"
+    # A API aceita o nome da cidade sozinho: "cidade + UF" no mesmo texto não devolve resultados.
+    # O filtro de país se chama `countryCode` (o parâmetro `country_codes` é ignorado pela API).
     params: dict[str, str | int] = {
-        "name": nome_busca,
-        "count": 5,
+        "name": cidade.strip(),
+        "count": 10,
         "language": "pt",
-        "country_codes": "BR",
+        "countryCode": "BR",
     }
 
     try:
@@ -126,14 +111,14 @@ def buscar_coordenadas(
         resultados = resposta.json().get("results")
 
         if resultados:
-            primeiro = resultados[0]
-            lat: float = primeiro.get("latitude", 0.0)
-            lon: float = primeiro.get("longitude", 0.0)
-            admin1: str = primeiro.get("admin1", "")
+            escolhido = _escolher_resultado(resultados, uf)
+            lat: float = escolhido.get("latitude", 0.0)
+            lon: float = escolhido.get("longitude", 0.0)
+            admin1: str = escolhido.get("admin1", "")
             uf_detectada = obter_sigla_uf(admin1, uf)
             return lat, lon, uf_detectada
 
-    except (httpx.TimeoutException, httpx.HTTPError, Exception):
+    except (httpx.TimeoutException, httpx.HTTPError, Exception):  # noqa: BLE001, S110
         pass
 
     # Fallback: coordenadas da capital da UF informada pelo usuário
@@ -145,28 +130,12 @@ def buscar_coordenadas(
     return 0.0, 0.0, f"{cidade.strip()} - {uf.strip()}"
 
 
-# ==============================================================================
-# 👤 RESPONSABILIDADE DO ALUNO 2: Telemetria Climática e Roteamento Rodoviário
-# ==============================================================================
+def eh_coordenada_de_fallback(lat: float, lon: float, uf: str) -> bool:
+    """Indica se as coordenadas vieram do fallback de `buscar_coordenadas` (cidade não localizada).
 
-
-def obter_clima(client: httpx.Client, lat: float, lon: float) -> dict[str, str]:
-    """Consulta o Open-Meteo Forecast e retorna temperatura (°C), umidade (%) e vento (km/h).
-
-    Caso coordenadas sejam inválidas (0.0, 0.0) ou ocorra timeout (4.0s),
-    retorna dicionário de contingência com valores 'N/D'.
+    O fallback devolve as coordenadas da capital da UF (ou 0.0, 0.0 quando nem a UF é conhecida),
+    então a coordenada exata da capital só ocorre quando a busca falhou.
     """
-    # TODO (Aluno 2): Implementar a consulta à API Open-Meteo Forecast com timeout e fallback
-    pass
-
-
-def obter_percurso(
-    client: httpx.Client, lat_o: float, lon_o: float, lat_d: float, lon_d: float
-) -> dict[str, str]:
-    """Consulta o OSRM e calcula distância em km e duração de viagem de carro.
-
-    Em caso de trajetos sem estradas (ex: ilhas) ou timeout (6.0s),
-    retorna dicionário com fallback descritivo ('Sem rota direta' / 'Considere voos ou barcos').
-    """
-    # TODO (Aluno 2): Implementar o cálculo de rota e distância via OSRM com conversão de unidades
-    pass
+    if lat == 0.0 and lon == 0.0:
+        return True
+    return _COORDS_CAPITAIS.get(uf.strip().upper()) == (lat, lon)

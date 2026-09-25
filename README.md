@@ -18,7 +18,7 @@ Aplicação web desenvolvida com **Flask** e Python moderno para orquestração 
 
 > Consulte o arquivo [DIVISAO_TAREFAS.md](./DIVISAO_TAREFAS.md) para o detalhamento completo das responsabilidades de cada integrante.
 
-> 🎤 **Vai apresentar?** Veja o [Roteiro de Apresentação](#-roteiro-de-apresentação): para cada ponto de cada integrante há a resposta pronta e o trecho de código correspondente.
+> 🎤 **Roteiro da apresentação:** veja o [Roteiro de Apresentação](#-roteiro-de-apresentação). Cada tópico traz o que será explicado, a explicação e o código correspondente.
 
 ---
 
@@ -191,19 +191,19 @@ python -m unittest discover -s tests -v
 
 ## 🎤 Roteiro de Apresentação
 
-Guia para a apresentação oral. Para cada ponto que o integrante precisa explicar há **a pergunta**, **a resposta pronta para falar** e **o trecho do código** (com arquivo e linha, clicável no GitHub) para abrir na hora.
+Guia para conduzirmos a apresentação por este arquivo. Cada tópico traz **o que será explicado**, **a explicação** e **o trecho do código** (com arquivo e linha, clicável no GitHub) para abrir na hora.
 
-O projeto tem 3 integrantes, então o quarto papel do enunciado (Aluno 4) foi dividido conforme o [`DIVISAO_TAREFAS.md`](DIVISAO_TAREFAS.md):
+Como somos 3 integrantes, o quarto papel previsto na atividade (Aluno 4) foi dividido entre nós, conforme o [`DIVISAO_TAREFAS.md`](DIVISAO_TAREFAS.md):
 
-| Integrante | Papéis do enunciado | Pontos que explica |
+| Integrante | Responsabilidade | Tópicos |
 |---|---|---|
 | [👤 Héber Bringel](#-héber-bringel--apis-rest-geocodificação-e-autenticação) | Aluno 1 + *Tratamento Global de Erros* do Aluno 4 | HTTPX e pooling · Timeouts · Geocodificação e UF · Token JWT · Erros 404/405 e `/viagens/json` |
 | [👤 Douglas Leone](#-douglas-leone--telemetria-rotas-e-inteligência-artificial) | Aluno 2 | Tipagem e qualidade · Clima e rotas · Engenharia de prompt · Regex e fallback da IA |
 | [👤 Mikaelle Barroso](#-mikaelle-barroso--backend-gateway-sessões-idempotência-e-persistência-json) | Aluno 3 + Persistência JSON do Aluno 4 | GET × POST · PRG · Idempotência · Sessão · Payload JSON · Thread-safe · `.get()` |
 
-**Arquitetura em uma frase (vale para qualquer pergunta):** o projeto segue MVC. O *Controller* (`controllers/`) recebe a requisição HTTP, o *Model* (`models/`) persiste os dados, a *View* (`templates/`) mostra o resultado e a camada de *Services* (`services/`) conversa com as APIs externas.
+**Arquitetura em uma frase (para abrir a apresentação):** o projeto segue MVC. O *Controller* (`controllers/`) recebe a requisição HTTP, o *Model* (`models/`) persiste os dados, a *View* (`templates/`) mostra o resultado e a camada de *Services* (`services/`) conversa com as APIs externas.
 
-**Testes que comprovam o que é dito abaixo:** `python -m unittest discover -s tests -v` (16 testes, rodam sem internet) e `python testar_douglas.py` (clima, rotas, regex e fallback da IA).
+**Testes que comprovam o que é dito abaixo:** `python -m unittest discover -s tests -v` (testes do fluxo web, rodam sem internet) e `python testar_douglas.py` (clima, rotas, regex e fallback da IA).
 
 ---
 
@@ -211,9 +211,9 @@ O projeto tem 3 integrantes, então o quarto papel do enunciado (Aluno 4) foi di
 
 #### 🌐 1. Consumo com HTTPX & Connection Pooling
 
-> **Pergunta do professor:** Explicar por que instanciar o cliente com `with httpx.Client() as client` é mais eficiente do que chamadas soltas (reaproveitamento de conexões TCP/TLS).
+> **Neste tópico:** Por que instanciar o cliente com `with httpx.Client() as client` é mais eficiente do que chamadas soltas (reaproveitamento de conexões TCP/TLS).
 
-**Resposta (o que falar):**
+**Explicação:**
 
 - Uma chamada solta (`httpx.get(...)`) cria e descarta um cliente a cada requisição, então **cada chamada refaz o handshake TCP e o TLS** (várias idas e voltas na rede antes de trafegar qualquer dado).
 - O `httpx.Client()` mantém um **pool de conexões keep-alive** por servidor: a segunda chamada ao mesmo host reaproveita a conexão que já está aberta.
@@ -253,14 +253,14 @@ def buscar_coordenadas(
 ) -> tuple[float, float, str]:
 ```
 
-**Se perguntarem:** *“Por que não um cliente global?”* — Poderia, mas aqui o escopo do `with` é a própria requisição: é simples, não compartilha estado entre threads e sempre libera as conexões.
+**Detalhe extra:** poderíamos usar um cliente global, mas aqui o escopo do `with` é a própria requisição: é simples, não compartilha estado entre threads e sempre libera as conexões.
 
 
 #### ⏱️ 2. Timeouts Defensivos
 
-> **Pergunta do professor:** Justificar os limites estritos de tempo configurados nas chamadas de rede para evitar travamentos do servidor.
+> **Neste tópico:** Por que cada chamada de rede tem um limite de tempo estrito, evitando travamentos do servidor.
 
-**Resposta (o que falar):**
+**Explicação:**
 
 - A rede é a parte imprevisível do sistema. O servidor Flask atende cada requisição em uma thread: se uma API externa demorar, **essa thread e o usuário ficam presos esperando**.
 - Por isso toda chamada tem timeout explícito e cada função de serviço **captura a falha e devolve um fallback** (coordenadas da capital, `N/D`, “Sem rota direta”, guia de contingência). O usuário recebe uma resposta degradada, nunca uma página quebrada.
@@ -305,19 +305,19 @@ def buscar_coordenadas(
 
 #### 📍 3. Geocodificação e Correção de UF
 
-> **Pergunta do professor:** Explicar a consulta com filtro Brasil (`country_codes=BR`) e a detecção da UF real através do campo `admin1` retornado pela API.
+> **Neste tópico:** Como a busca usa o filtro de país (`countryCode=BR`) e como a UF real é detectada pelo campo `admin1` retornado pela API.
 
-**Resposta (o que falar):**
+**Explicação:**
 
 - O geocoding é o **Open-Meteo Geocoding API** (gratuito, sem chave). Ele recebe o **nome da cidade** e devolve uma lista de candidatos com latitude, longitude e o estado no campo **`admin1`** (por exemplo, `"Piauí"`).
 - O **filtro de país** restringe a busca ao Brasil. Sem ele, homônimos de outros países aparecem: existe uma *Teresina* na Polônia e uma *Santa Maria* nos EUA. Também usamos `language=pt` e `count=10`.
-- ⚠️ **Detalhe que vale citar:** o enunciado fala em `country_codes=BR`, mas ao testar a API real vimos que ela **ignora esse nome** (a busca ainda devolvia a Teresina polonesa). O parâmetro que ela respeita é **`countryCode=BR`**, que é o que o código usa. O conceito é o mesmo: filtrar por código de país ISO.
+- ⚠️ **Detalhe técnico:** o nome que costuma aparecer em exemplos é `country_codes=BR`, mas ao testar a API real vimos que ela **ignora esse nome** (a busca ainda devolvia a Teresina polonesa). O parâmetro que ela respeita é **`countryCode=BR`**, que é o que o código usa. O conceito é o mesmo: filtrar por código de país ISO.
 - A busca vai **só com o nome da cidade**: juntar a UF no texto (`"Teresina PI"`) não retorna nenhum resultado, e o sistema cairia no fallback.
 - O `admin1` vem como **nome do estado**, não como sigla. A função `obter_sigla_uf` normaliza o texto (remove acentos com `unicodedata`, minúsculas) e procura no catálogo `ESTADOS_BRASIL` (`static/data/estados_brasil.json`), convertendo `"Piauí"` em `"PI"`.
 - **Escolha do candidato:** `_escolher_resultado` percorre os candidatos e pega o que **pertence à UF digitada** (assim *Santa Maria / RS* e *Santa Maria / PB* são cidades diferentes). Se nenhum candidato estiver naquela UF, usa o primeiro, que é o mais relevante para a API.
 - **Correção de UF:** se o usuário informar *Teresina / RJ*, nenhum candidato está no RJ, então vale o primeiro (Teresina, `admin1 = "Piauí"`) e a UF detectada é **PI**. O controller usa a UF detectada e não a digitada (`uf_origem_det or origem_uf`), e o roteiro fica *Teresina - PI*, com as coordenadas de Teresina.
 - Se a cidade não for localizada, o fallback devolve as coordenadas da capital da UF informada, e o metadado `geocoding_*` do roteiro registra `fallback` (função `eh_coordenada_de_fallback`).
-- Comprovação: `test_uf_divergente_usa_as_coordenadas_da_cidade_real`, `test_geocoding_escolhe_o_homonimo_da_uf_informada` e `test_geocoding_usa_country_code_e_busca_so_pelo_nome`. Ao vivo (Teste 5): origem **Teresina / RJ** deve gerar *Teresina - PI*.
+- Comprovação: `test_uf_divergente_usa_as_coordenadas_da_cidade_real`, `test_geocoding_escolhe_o_homonimo_da_uf_informada` e `test_geocoding_usa_country_code_e_busca_so_pelo_nome`. Ao vivo: origem **Teresina / RJ** gera *Teresina - PI*.
 
 **No código:** [`services/geocoding.py:98-119`](services/geocoding.py#L98-L119) — consulta com filtro de país (`countryCode=BR`) e leitura do `admin1`
 
@@ -393,9 +393,9 @@ def _escolher_resultado(resultados: list[dict[str, Any]], uf: str) -> dict[str, 
 
 #### 🔐 4. Validação de Token JWT
 
-> **Pergunta do professor:** Explicar como a credencial do Google Identity Services é validada no endpoint oficial `/tokeninfo` conferindo o campo `aud`.
+> **Neste tópico:** Como a credencial do Google Identity Services é validada no endpoint oficial `/tokeninfo`, conferindo o campo `aud`.
 
-**Resposta (o que falar):**
+**Explicação:**
 
 - **Fluxo completo:** o botão *Sign in with Google* (Google Identity Services) roda no navegador e devolve uma `credential`, que é um **JWT** (`id_token`). O JavaScript coloca essa credencial em um formulário escondido e faz `POST /auth/google/callback`.
 - No servidor, `verificar_token_google` chama o endpoint oficial **`https://oauth2.googleapis.com/tokeninfo?id_token=...`**. O Google valida a **assinatura e a expiração** do token e devolve os dados (claims) em JSON; token inválido ou expirado retorna erro HTTP, e `raise_for_status()` transforma isso em `None`.
@@ -472,14 +472,14 @@ def google_callback():
       </form>
 ```
 
-**Se perguntarem:** *“Por que não validar o JWT localmente?”* — Exigiria baixar as chaves públicas do Google (JWKS) e verificar a assinatura. Delegar ao `tokeninfo` é mais simples; o custo é uma chamada de rede extra por login.
+**Detalhe extra:** a alternativa seria validar o JWT localmente, baixando as chaves públicas do Google (JWKS) e verificando a assinatura. Delegar ao `tokeninfo` é mais simples; o custo é uma chamada de rede extra por login.
 
 
 #### 🚨 5. Tratamento Global de Erros e endpoint `GET /viagens/json`
 
-> **Pergunta do professor:** Explicar os manipuladores `@app.errorhandler(404)` e `@app.errorhandler(405)` e o endpoint REST `GET /viagens/json`.
+> **Neste tópico:** Os manipuladores de erro 404 e 405 (`app_errorhandler`) e o endpoint REST `GET /viagens/json`.
 
-**Resposta (o que falar):**
+**Explicação:**
 
 - **404** (rota inexistente) e **405** (método não permitido, por exemplo digitar `/viagens/criar` na barra de endereços, que só aceita POST) são interceptados de forma **global** e respondem com um redirecionamento (302) para a página inicial, em vez de mostrar a página de erro.
 - Na arquitetura MVC os handlers ficam em um Blueprint e usam **`@api_bp.app_errorhandler`**, que é o equivalente de `@app.errorhandler`: registra o tratamento para o **aplicativo inteiro**, e não só para as rotas daquele Blueprint. (`@bp.errorhandler` valeria apenas para o Blueprint.)
@@ -559,9 +559,9 @@ def montar_payload_consolidado(usuario_sessao: Any) -> dict[str, Any]:
 
 #### 📦 1. Tipagem Estática & Qualidade
 
-> **Pergunta do professor:** Explicar as assinaturas modernas em Python 3.10+ (`tuple[float, float, str]`, `dict[str, Any] | None`) e a validação com `ruff check .` e `mypy .`.
+> **Neste tópico:** As assinaturas modernas do Python 3.10+ (`tuple[float, float, str]`, `dict[str, Any] | None`) e a validação com `ruff check .` e `mypy .`.
 
-**Resposta (o que falar):**
+**Explicação:**
 
 - Uso a sintaxe moderna do Python: `tuple[...]`, `dict[...]` e `list[...]` são escritos direto, **sem importar `Tuple` e `Dict` do `typing`** (PEP 585, Python 3.9). O operador **`|`** substitui `Optional` e `Union` (PEP 604, Python 3.10).
 - `tuple[float, float, str]` é uma tupla de **tamanho fixo, com um tipo por posição**: latitude, longitude e UF. Quem chama desempacota direto: `lat, lon, uf = buscar_coordenadas(...)`.
@@ -604,10 +604,10 @@ def obter_guia_destino_com_diagnostico(destino: str) -> tuple[str, dict[str, Any
         return fallback
 ```
 
-**Se perguntarem:**
-- *“Por que `# noqa: BLE001`?”* — BLE001 é a regra do ruff que proíbe `except Exception` genérico. Foi silenciada de propósito: o contrato dessas funções é **nunca derrubar a requisição** e sempre devolver um fallback.
-- *“`except (TimeoutException, HTTPError, Exception)` não é redundante?”* — É: `Exception` já cobre as outras duas. As específicas ficam ali como documentação dos erros esperados.
-- *“O Python valida os tipos ao rodar?”* — Não. As anotações não mudam a execução; quem verifica é o mypy, antes de rodar.
+**Detalhes extras:**
+- O `# noqa: BLE001` silencia de propósito a regra do ruff que proíbe `except Exception` genérico: o contrato dessas funções é **nunca derrubar a requisição** e sempre devolver um fallback.
+- `except (TimeoutException, HTTPError, Exception)` é redundante, porque `Exception` já cobre as outras duas; as específicas ficam ali como documentação dos erros esperados.
+- O Python não valida os tipos ao rodar: as anotações não mudam a execução, e quem verifica é o mypy, antes de rodar.
 
 Para rodar ao vivo:
 
@@ -619,9 +619,9 @@ mypy .
 
 #### 🚗 2. Telemetria de Clima e Rotas
 
-> **Pergunta do professor:** Explicar o consumo das APIs Open-Meteo Weather e OSRM, a conversão de metros para km (`round(m/1000, 1)`) e de segundos para horas/minutos.
+> **Neste tópico:** O consumo das APIs Open-Meteo Weather e OSRM, a conversão de metros para km (`round(m/1000, 1)`) e de segundos para horas e minutos.
 
-**Resposta (o que falar):**
+**Explicação:**
 
 - **Open-Meteo Forecast** (`/v1/forecast`): recebe latitude, longitude e `current=temperature_2m,relative_humidity_2m,wind_speed_10m`. É gratuita, **sem chave**, e as unidades padrão já são °C, % e km/h. Timeout de 4 s.
 - Se as coordenadas forem `(0.0, 0.0)`, o geocoding falhou: a função nem chama a API e devolve `N/D`. A leitura usa `.get("current", {})` e, se algum campo vier `None`, devolve o fallback.
@@ -711,16 +711,16 @@ mypy .
             tempo_formatado = f"{minutos}min de carro"
 ```
 
-**Se perguntarem:** *“Por que o `int()` nas horas?”* — Porque `//` aplicado a `float` devolve `float` (`2.0`); o `int()` deixa `2`.
+**Detalhe extra:** o `int()` nas horas é necessário porque `//` aplicado a `float` devolve `float` (`2.0`); o `int()` deixa `2`.
 
-Teste ao vivo (Teste 5 do professor): destino **Fernando de Noronha / PE** deve mostrar “Sem rota direta” e “Considere voos ou barcos”. Também comprovado em `python testar_douglas.py`.
+**Demonstração ao vivo:** destino **Fernando de Noronha / PE** mostra “Sem rota direta” e “Considere voos ou barcos”. Também comprovado em `python testar_douglas.py`.
 
 
 #### 🤖 3. Engenharia de Prompt
 
-> **Pergunta do professor:** Explicar as restrições aplicadas no prompt para forçar respostas em texto puro com emojis, sem asteriscos ou marcações Markdown.
+> **Neste tópico:** As restrições do prompt que forçam respostas em texto puro com emojis, sem asteriscos nem Markdown.
 
-**Resposta (o que falar):**
+**Explicação:**
 
 - O front exibe o guia **cru**, dentro de um `<div class="guia-texto">` com `white-space: pre-line`, e **não interpreta Markdown**. Se a IA mandasse `**negrito**`, os asteriscos apareceriam na tela. Por isso o prompt força texto puro.
 - **Persona:** “renomado consultor turístico especialista no Brasil”.
@@ -774,14 +774,14 @@ Teste ao vivo (Teste 5 do professor): destino **Fernando de Noronha / PE** deve 
               <div class="guia-texto">{{ v.dicas_destino }}</div>
 ```
 
-**Se perguntarem:** *“Qual modelo responde?”* — A lista tenta `gemini-2.5-flash` primeiro (~2,5 s, cabe no limite de 6 s), depois `gemini-3.6-flash` e por fim `gemini-2.5-flash-lite`. O diagnóstico registra o modelo que **realmente** respondeu.
+**Detalhe extra:** a lista de modelos tenta `gemini-2.5-flash` primeiro (~2,5 s, cabe no limite de 6 s), depois `gemini-3.6-flash` e por fim `gemini-2.5-flash-lite`. O diagnóstico registra o modelo que **realmente** respondeu.
 
 
 #### 🛡️ 4. Sanitização Regex & Fallback da IA
 
-> **Pergunta do professor:** Explicar a função `limpar_formato_texto()`, o isolamento em `ThreadPoolExecutor(timeout=6.0s)` e o disparo do guia de contingência.
+> **Neste tópico:** A função `limpar_formato_texto()`, o isolamento em `ThreadPoolExecutor` com limite de 6 s e o disparo do guia de contingência.
 
-**Resposta (o que falar):**
+**Explicação:**
 
 - São **três camadas**: o prompt *previne*, o regex *corrige* o que a IA desobedecer e o fallback *substitui* o texto quando a IA falha.
 - `limpar_formato_texto()` aplica, em ordem: remove crases; converte listas `*` e `-` do começo da linha em `•` (`(?m)` faz o `^` valer para **cada linha**); remove títulos `#`; tira negrito com `\*\*([^*]+)\*\*` → `\1` (o grupo `( )` captura o texto e `\1` o devolve sem os asteriscos); tira itálico e asteriscos soltos; remove a **saudação da primeira linha** e a **despedida da última**; e junta linhas em branco repetidas.
@@ -917,7 +917,7 @@ def gerar_guia_contingencia(destino: str) -> str:
             )
 ```
 
-**Teste 2 do professor** (`GEMINI_API_KEY="CHAVE_INVALIDA"`): a API responde 400, a exceção é capturada e o card exibe o roteiro de contingência em texto puro, **sem erro 500**.
+**Demonstração ao vivo do fallback** (`GEMINI_API_KEY="CHAVE_INVALIDA"`): a API responde 400, a exceção é capturada e o card exibe o roteiro de contingência em texto puro, **sem erro 500**.
 
 ```powershell
 $env:GEMINI_API_KEY="CHAVE_INVALIDA"
@@ -933,9 +933,9 @@ A variável de ambiente tem prioridade sobre o `.env`.
 
 #### 🔄 1. Ciclo de Vida HTTP (POST vs GET)
 
-> **Pergunta do professor:** Explicar a diferença semântica entre a rota `/` (GET idempotente) e a rota `/viagens/criar` (POST não-idempotente).
+> **Neste tópico:** A diferença entre a rota `/` (GET, idempotente) e a rota `/viagens/criar` (POST, não idempotente).
 
-**Resposta (o que falar):**
+**Explicação:**
 
 - **Idempotente** significa que repetir a mesma requisição N vezes tem o mesmo efeito de fazê-la uma vez.
 - **`GET /`** só **lê**: busca os roteiros do usuário e renderiza a página, sem alterar nada no servidor. É seguro e idempotente, então pode ser repetido, guardado em cache e favoritado.
@@ -988,9 +988,9 @@ def deletar_viagem(viagem_id: str):
 
 #### 🛡️ 2. Padrão Post/Redirect/Get (PRG)
 
-> **Pergunta do professor:** Explicar por que a rota de criação responde com HTTP 302 Found redirecionando para a home (evitando reenvio acidental com F5).
+> **Neste tópico:** Por que a rota de criação responde com HTTP 302 Found redirecionando para a home (evita o reenvio acidental com F5).
 
-**Resposta (o que falar):**
+**Explicação:**
 
 - Se o POST respondesse renderizando a página diretamente, o navegador ficaria **na URL do POST**. Ao apertar **F5**, ele perguntaria “reenviar o formulário?” e, se o usuário confirmasse, **repetiria o POST e criaria o roteiro duplicado**.
 - No PRG, o servidor processa o POST e responde **`302 Found`** com o cabeçalho `Location: /`. O navegador então faz um **GET `/`** automaticamente. A URL final é a da home, e o **F5 só repete o GET** (seguro).
@@ -1019,9 +1019,9 @@ def deletar_viagem(viagem_id: str):
 
 #### 🔒 3. Idempotência & Bloqueio de Concorrência
 
-> **Pergunta do professor:** Explicar como o frontend (desabilitação do botão com spinner) e o backend (`threading.Lock` e controle de requisições recentes) evitam cliques duplos.
+> **Neste tópico:** Como o frontend (botão desabilitado com spinner) e o backend (`threading.Lock` e controle de requisições recentes) evitam cliques duplos.
 
-**Resposta (o que falar):**
+**Explicação:**
 
 - São **duas camadas**, e a segunda é a que realmente garante, porque o navegador pode ser burlado (F12, `curl`, dois cliques rápidos).
 - **Frontend (`app.js`):** ao enviar o formulário, a flag `submetido` vira `true`, o botão é **desabilitado** (`btn.disabled = true`) e o texto muda para “⏳ Consultando APIs e Gemini AI...”. Um segundo envio é cancelado com `e.preventDefault()`. Um timer de segurança libera o botão após 12 s, caso a rede falhe.
@@ -1110,13 +1110,13 @@ lock_requisicoes = threading.Lock()
 
 #### 👤 4. Segurança de Sessão
 
-> **Pergunta do professor:** Explicar como o dicionário `session["usuario"]` persiste o usuário autenticado por meio de cookies criptografados e como funciona o Modo Visitante.
+> **Neste tópico:** Como `session["usuario"]` mantém o usuário autenticado por meio de cookies assinados e como funciona o Modo Visitante.
 
-**Resposta (o que falar):**
+**Explicação:**
 
 - O servidor **não guarda a sessão em memória**: ela fica em um **cookie** no navegador. O Flask serializa o dicionário `session` e o **assina** com a `SECRET_KEY` (HMAC, via *itsdangerous*).
 - A cada requisição o navegador devolve o cookie, o Flask **confere a assinatura** e reconstrói o `session`. Assim `session.get("usuario")` identifica quem está logado. Se o cookie for adulterado, a assinatura não bate e a sessão é descartada.
-- ⚠️ **Precisão importante:** o cookie padrão do Flask é **assinado, não criptografado**. O conteúdo é codificado em base64 e **pode ser lido** por quem inspecionar o cookie; o que a assinatura garante é que ninguém consegue **alterá-lo** sem a chave. Por isso não se guardam segredos na sessão, apenas `id`, `nome`, `email`, `foto` e `visitante`.
+- ⚠️ **Detalhe técnico importante:** o cookie padrão do Flask é **assinado, não criptografado**. O conteúdo é codificado em base64 e **pode ser lido** por quem inspecionar o cookie; o que a assinatura garante é que ninguém consegue **alterá-lo** sem a chave. Por isso não se guardam segredos na sessão, apenas `id`, `nome`, `email`, `foto` e `visitante`.
 - A `SECRET_KEY` vem da variável de ambiente e existe um valor padrão só para desenvolvimento; **em produção deve ser definida no `.env`**, porque quem a conhece consegue forjar cookies.
 - **Modo Visitante (`/auth/demo`):** gera um id `visitante-<uuid>`, grava `session["usuario"]` com `visitante: True` e reserva uma lista **em memória** (`viagens_visitante_memoria`). Os roteiros do visitante **nunca vão para o `viagens.json`**: `eh_usuario_visitante` decide pelo prefixo do id e pelo flag, e não depende da memória, então mesmo após reiniciar o servidor o visitante não cai no arquivo. O logout limpa a sessão e apaga a memória do visitante.
 - Comprovação: `test_visitante_fica_so_em_memoria` e `test_visitante_com_memoria_zerada_nao_grava_no_json`.
@@ -1189,9 +1189,9 @@ def eh_usuario_visitante(
 
 #### 📂 5. Anatomia do Payload JSON
 
-> **Pergunta do professor:** Explicar a estrutura hierárquica do arquivo `static/data/viagens.json` (nó raiz com metadados, catálogo de provedores e nós por usuário).
+> **Neste tópico:** A estrutura hierárquica de `static/data/viagens.json`: nó raiz com metadados, catálogo de provedores e nós por usuário.
 
-**Resposta (o que falar):**
+**Explicação:**
 
 - O arquivo tem **três níveis**. **Nó raiz:** metadados do documento (`versao_schema`, `descricao`, `atualizado_em`, `total_usuarios`, `total_roteiros`). **Catálogo de provedores:** quais serviços alimentam os dados. **Nó `usuarios`:** um dicionário indexado pelo **id do usuário** (o `sub` do Google).
 - Cada usuário tem `perfil` (id, nome, e-mail, foto), `metadados` (total de roteiros, criado e atualizado em) e a lista **`roteiros`**.
@@ -1276,9 +1276,9 @@ Exemplo (resumido):
 
 #### 🔒 6. Leitura e Escrita Thread-Safe
 
-> **Pergunta do professor:** Explicar o uso do `threading.Lock()` para prevenir corrupção de dados por concorrência e a diferença entre `json.load/json.dump` e `json.loads/json.dumps`.
+> **Neste tópico:** O uso do lock para evitar corrupção de dados por concorrência e a diferença entre `json.load/json.dump` e `json.loads/json.dumps`.
 
-**Resposta (o que falar):**
+**Explicação:**
 
 - O Flask atende várias requisições ao mesmo tempo, em threads, e todas usam o **mesmo arquivo**. O perigo é a **condição de corrida** no ciclo *ler → alterar → salvar*: duas requisições leem a mesma versão, cada uma acrescenta a sua viagem e a **última a gravar apaga a da outra** (*lost update*), ou duas escritas se misturam e corrompem o JSON.
 - A solução é o **lock**: só uma thread por vez executa o trecho protegido. O lock envolve o **ciclo inteiro** (`with lock_arquivo_json:` dentro de `adicionar_viagem_usuario`), e não só a leitura ou só a escrita separadamente.
@@ -1399,9 +1399,9 @@ def adicionar_viagem_usuario(
 
 #### 🛡️ 7. Navegação Defensiva
 
-> **Pergunta do professor:** Explicar o uso de `.get()` encadeado com valores padrão para prevenir exceções `KeyError` ao consumir dados aninhados.
+> **Neste tópico:** O uso de `.get()` encadeado com valores padrão para evitar `KeyError` ao consumir dados aninhados.
 
-**Resposta (o que falar):**
+**Explicação:**
 
 - `dados["usuarios"][id]["roteiros"]` lança **`KeyError`** se qualquer nível não existir (arquivo novo, usuário sem roteiros, JSON antigo ou editado à mão). O `.get(chave, padrão)` devolve o **padrão** em vez de lançar exceção.
 - No projeto o `.get()` aparece **encadeado por nível**: `dados.get("usuarios", {})` → `usuarios.get(user_id, {})` → `usuario.get("roteiros")`. Cada passo já entrega algo seguro para o próximo (um dicionário vazio ou uma lista vazia).

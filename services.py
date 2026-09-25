@@ -1,6 +1,5 @@
 # Serviços de integração com APIs externas (Google OAuth, Open-Meteo e OSRM)
 
-import re
 import unicodedata
 from typing import Any
 
@@ -34,7 +33,7 @@ def verificar_token_google(client: httpx.Client, token: str) -> dict[str, Any] |
 
         return payload
 
-    except (httpx.TimeoutException, httpx.HTTPError, Exception):
+    except (httpx.TimeoutException, httpx.HTTPError, Exception):  # noqa: BLE001
         return None
 
 
@@ -113,7 +112,7 @@ def buscar_coordenadas(
     """
     nome_busca = f"{cidade.strip()} {uf.strip()}".strip()
     url = "https://geocoding-api.open-meteo.com/v1/search"
-    params = {"name": nome_busca, "count": 5, "language": "pt", "country_codes": "BR"}
+    params: dict[str, str | int] = {"name": nome_busca, "count": 5, "language": "pt", "country_codes": "BR"}
 
     try:
         resposta = client.get(url, params=params, timeout=4.0)
@@ -128,7 +127,7 @@ def buscar_coordenadas(
             uf_detectada = obter_sigla_uf(admin1, uf)
             return lat, lon, uf_detectada
 
-    except (httpx.TimeoutException, httpx.HTTPError, Exception):
+    except (httpx.TimeoutException, httpx.HTTPError, Exception):  # noqa: BLE001, S110
         pass
 
     # Fallback: coordenadas da capital da UF informada pelo usuário
@@ -151,8 +150,44 @@ def obter_clima(client: httpx.Client, lat: float, lon: float) -> dict[str, str]:
     Caso coordenadas sejam inválidas (0.0, 0.0) ou ocorra timeout (4.0s),
     retorna dicionário de contingência com valores 'N/D'.
     """
-    # TODO (Aluno 2): Implementar a consulta à API Open-Meteo Forecast com timeout e fallback
-    pass
+    fallback = {
+        "temperatura": "N/D",
+        "umidade": "N/D",
+        "vento": "N/D",
+    }
+
+    # Validação rápida de coordenadas zeradas
+    if lat == 0.0 and lon == 0.0:
+        return fallback
+
+    url = "https://api.open-meteo.com/v1/forecast"
+    params: dict[str, str | float] = {
+        "latitude": lat,
+        "longitude": lon,
+        "current": "temperature_2m,relative_humidity_2m,wind_speed_10m",
+    }
+
+    try:
+        resposta = client.get(url, params=params, timeout=4.0)
+        resposta.raise_for_status()
+        dados = resposta.json()
+        current = dados.get("current", {})
+
+        temperatura = current.get("temperature_2m")
+        umidade = current.get("relative_humidity_2m")
+        vento = current.get("wind_speed_10m")
+
+        if temperatura is None or umidade is None or vento is None:
+            return fallback
+
+        return {
+            "temperatura": f"{temperatura} °C",
+            "umidade": f"{umidade}%",
+            "vento": f"{vento} km/h",
+        }
+
+    except (httpx.TimeoutException, httpx.HTTPError, Exception):  # noqa: BLE001
+        return fallback
 
 
 def obter_percurso(
@@ -163,5 +198,68 @@ def obter_percurso(
     Em caso de trajetos sem estradas (ex: ilhas) ou timeout (6.0s),
     retorna dicionário com fallback descritivo ('Sem rota direta' / 'Considere voos ou barcos').
     """
-    # TODO (Aluno 2): Implementar o cálculo de rota e distância via OSRM com conversão de unidades
-    pass
+    fallback_sem_rota = {
+        "distancia": "Sem rota direta",
+        "tempo": "Considere voos ou barcos",
+        "modal": "outro",
+    }
+
+    # Validação de coordenadas nulas
+    if (lat_o == 0.0 and lon_o == 0.0) or (lat_d == 0.0 and lon_d == 0.0):
+        return fallback_sem_rota
+
+    # OSRM espera coordenadas no formato: {longitude},{latitude};{longitude},{latitude}
+    url = f"https://router.project-osrm.org/route/v1/driving/{lon_o},{lat_o};{lon_d},{lat_d}"
+    params: dict[str, str] = {"overview": "false"}
+
+    try:
+        resposta = client.get(url, params=params, timeout=6.0)
+        resposta.raise_for_status()
+        dados = resposta.json()
+
+        # Verifica se o OSRM encontrou rota válida
+        if dados.get("code") != "Ok":
+            return fallback_sem_rota
+
+        routes = dados.get("routes", [])
+        if not routes:
+            return fallback_sem_rota
+
+        # Verificação defensiva de snap (ilhas/destinos sem malha rodoviária conectada).
+        # O OSRM pode 'encaixar' destinos insulares na costa mais próxima. Se o ponto de destino
+        # estiver a mais de 10 km (10.000m) da estrada navegável mais próxima, consideramos sem rota direta.
+        waypoints = dados.get("waypoints", [])
+        if len(waypoints) >= 2:
+            dist_snap_destino = waypoints[1].get("distance", 0.0)
+            if dist_snap_destino > 10000.0:
+                return fallback_sem_rota
+
+        rota = routes[0]
+        distancia_metros: float = rota.get("distance", 0.0)
+        duracao_segundos: float = rota.get("duration", 0.0)
+
+        # Conversão de unidades: metros para quilômetros com 1 casa decimal
+        distancia_km = round(distancia_metros / 1000.0, 1)
+
+        # Conversão de duração: segundos para horas e minutos inteiros
+        horas = int(duracao_segundos // 3600)
+        minutos = round((duracao_segundos % 3600) / 60.0)
+
+        # Ajuste caso o arredondamento dos minutos resulte em 60
+        if minutos == 60:
+            horas += 1
+            minutos = 0
+
+        if horas > 0:
+            tempo_formatado = f"{horas}h {minutos:02d}min de carro"
+        else:
+            tempo_formatado = f"{minutos}min de carro"
+
+        return {
+            "distancia": f"{distancia_km} km",
+            "tempo": tempo_formatado,
+            "modal": "carro",
+        }
+
+    except (httpx.TimeoutException, httpx.HTTPError, Exception):  # noqa: BLE001
+        return fallback_sem_rota

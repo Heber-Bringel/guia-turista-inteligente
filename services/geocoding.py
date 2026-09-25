@@ -102,7 +102,7 @@ def buscar_coordenadas(
             uf_detectada = obter_sigla_uf(admin1, uf)
             return lat, lon, uf_detectada
 
-    except (httpx.TimeoutException, httpx.HTTPError, Exception):
+    except (httpx.TimeoutException, httpx.HTTPError, Exception):  # noqa: BLE001, S110
         pass
 
     # Fallback: coordenadas da capital da UF informada pelo usuário

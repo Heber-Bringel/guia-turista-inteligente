@@ -28,5 +28,5 @@ def verificar_token_google(client: httpx.Client, token: str) -> dict[str, Any] |
 
         return payload
 
-    except (httpx.TimeoutException, httpx.HTTPError, Exception):
+    except (httpx.TimeoutException, httpx.HTTPError, Exception):  # noqa: BLE001
         return None

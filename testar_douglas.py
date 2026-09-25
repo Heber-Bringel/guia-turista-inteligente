@@ -19,9 +19,13 @@ if hasattr(sys.stderr, "reconfigure"):
 import httpx
 
 import config
-import planejamento
-from planejamento import limpar_formato_texto, obter_guia_destino_com_diagnostico
-from services import obter_clima, obter_percurso
+from services import (
+    gemini,
+    limpar_formato_texto,
+    obter_clima,
+    obter_guia_destino_com_diagnostico,
+    obter_percurso,
+)
 
 
 def testar_clima():
@@ -106,7 +110,7 @@ def testar_fallback_gemini():
     # Simula a ação ao vivo do professor: export GEMINI_API_KEY="CHAVE_INVALIDA"
     os.environ["GEMINI_API_KEY"] = "CHAVE_INVALIDA"
     config.GEMINI_KEY = "CHAVE_INVALIDA"
-    planejamento.GEMINI_KEY = "CHAVE_INVALIDA"
+    gemini.GEMINI_KEY = "CHAVE_INVALIDA"
 
     print("Simulando execução com GEMINI_API_KEY='CHAVE_INVALIDA'...")
     guia, diag = obter_guia_destino_com_diagnostico("Florianópolis - SC")

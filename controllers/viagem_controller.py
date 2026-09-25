@@ -12,8 +12,12 @@ from flask import Blueprint, redirect, request, session, url_for
 from config import ESTADOS_BRASIL
 from controllers.validacao import sanitizar_entrada
 from models.viagem_repository import adicionar_viagem_usuario, remover_viagem_usuario
-from planejamento import obter_guia_destino_com_diagnostico
-from services import buscar_coordenadas, obter_clima, obter_percurso
+from services import (
+    buscar_coordenadas,
+    obter_clima,
+    obter_guia_destino_com_diagnostico,
+    obter_percurso,
+)
 
 viagens_bp = Blueprint("viagens", __name__)
 

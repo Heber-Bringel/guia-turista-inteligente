@@ -4,7 +4,7 @@ Arquitetura MVC:
     models/       → persistência dos roteiros (JSON thread-safe) e visitantes em memória
     controllers/  → rotas HTTP (Blueprints), validação de entrada, PRG e idempotência
     templates/    → views (Jinja2) e static/ (CSS/JS)
-    services.py / planejamento.py → integrações externas (Open-Meteo, OSRM, Google, Gemini)
+    services/     → integrações externas (Google OAuth, Open-Meteo, OSRM e Gemini)
 """
 
 import os

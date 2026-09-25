@@ -3,17 +3,11 @@
 import json
 import os
 import re
-import sys
 import threading
 import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
-
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8")
-if hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8")
 
 import httpx
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
@@ -358,16 +352,16 @@ def google_callback():
 def login_demo():
     """Cria uma sessão temporária para o visitante."""
 
-    user_id = f"visitante_{uuid.uuid4().hex}"
+    user_id = f"visitante-{uuid.uuid4().hex}"
 
     session.clear()
 
     session["usuario"] = {
         "id": user_id,
         "nome": "Viajante Convidado",
-        "email": "visitante@demo.local",
-        "foto": "https://lh3.googleusercontent.com/a/default-user=s96-c",
-        "picture": "https://lh3.googleusercontent.com/a/default-user=s96-c",
+        "email": "",
+        "foto": "",
+        "picture": "",
         "visitante": True,
     }
 

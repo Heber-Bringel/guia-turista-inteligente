@@ -133,8 +133,15 @@ guia-turista-inteligente/
 ├── tests/
 │   └── test_fluxo_web.py       # Testes do fluxo web (offline, APIs externas simuladas)
 ├── config.py               # Constantes, portas, chaves e catálogo de UFs
-├── services.py             # Serviços: integrações HTTPX (Google OAuth, Geocoding, Clima e OSRM)
-├── planejamento.py         # Serviço de IA: Gemini, sanitização regex e guia de contingência
+├── services/               # Serviços: integrações com APIs externas
+│   ├── google_auth.py          # Validação do token JWT do Google (Aluno 1)
+│   ├── geocoding.py            # Open-Meteo Geocoding, UF oficial e fallback de capitais (Aluno 1)
+│   ├── clima.py                # Open-Meteo Forecast: temperatura, umidade e vento (Aluno 2)
+│   ├── rotas.py                # OSRM: distância, duração e detecção de destinos sem estrada (Aluno 2)
+│   ├── gemini.py               # Gemini AI: prompt, timeout de 6s em thread e fallback (Aluno 2)
+│   ├── sanitizacao.py          # Regex que remove Markdown, saudações e despedidas (Aluno 2)
+│   └── contingencia.py         # Guia de contingência em texto puro com emojis (Aluno 2)
+├── static/img/visitante.svg    # Avatar padrão do modo visitante
 ├── templates/              # V — View
 │   └── index.html          # Template Jinja2 (SSR, Google Login, Formulário e Cards)
 ├── static/

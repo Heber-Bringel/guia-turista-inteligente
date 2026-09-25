@@ -21,15 +21,30 @@
 
 ---
 
+## 🏗️ Arquitetura do Projeto (MVC)
+
+O código foi organizado em camadas. As funções e os eixos de arguição abaixo continuam os mesmos; mudou apenas **onde** cada trecho mora:
+
+| Camada | Local | Quem |
+|--------|-------|------|
+| **Model** | `models/viagem_repository.py` (JSON thread-safe com `RLock`, visitantes em memória) | Mikaelle |
+| **Controller** | `controllers/` — `main`, `auth`, `viagem` (PRG + idempotência), `api` (`/viagens/json` e erros 404/405/500), `validacao` | Mikaelle e Héber |
+| **View** | `templates/index.html` e `static/` | — |
+| **Services** | `services/` — `google_auth`, `geocoding` (Héber) · `clima`, `rotas`, `gemini`, `sanitizacao`, `contingencia` (Douglas) | Héber e Douglas |
+
+`app.py` ficou apenas com a fábrica `create_app()` e o registro dos Blueprints.
+
+---
+
 ## 👤 Héber Bringel — APIs REST, Geocodificação & Resiliência HTTP
 
 ### 📁 Arquivos sob responsabilidade
-- `services.py` — Funções de autenticação e geocodificação
-- `app.py` — Tratamento global de erros (404/405) e endpoint `/viagens/json`
+- `services/google_auth.py` e `services/geocoding.py` — Funções de autenticação e geocodificação
+- `controllers/api_controller.py` — Tratamento global de erros (404/405/500) e endpoint `/viagens/json`
 
 ### 💻 Implementações de Código
 
-#### `services.py` — Integração com Google OAuth e Open-Meteo Geocoding
+#### `services/google_auth.py` e `services/geocoding.py` — Integração com Google OAuth e Open-Meteo Geocoding
 
 ```python
 def verificar_token_google(client: httpx.Client, token: str) -> dict[str, Any] | None:
@@ -55,14 +70,14 @@ def buscar_coordenadas(
     pass
 ```
 
-#### `app.py` — Endpoint REST e Fallbacks HTTP
+#### `controllers/api_controller.py` — Endpoint REST e Fallbacks HTTP
 
 ```python
 # GET /viagens/json → Retorna JSON consolidado (Content-Type: application/json)
 
-# @app.errorhandler(404) → Redireciona rotas inexistentes suavemente para url_for('index')
+# @api_bp.app_errorhandler(404) → Redireciona rotas inexistentes suavemente para url_for('main.index')
 
-# @app.errorhandler(405) → Redireciona métodos HTTP incorretos suavemente para url_for('index')
+# @api_bp.app_errorhandler(405) → Redireciona métodos HTTP incorretos suavemente para url_for('main.index')
 ```
 
 ### 🎤 Eixos de Arguição Oral (Apresentação)
@@ -89,12 +104,12 @@ def buscar_coordenadas(
 ## 👤 Douglas Leone — Telemetria, Rotas & Inteligência Artificial
 
 ### 📁 Arquivos sob responsabilidade
-- `services.py` — Funções de clima e roteamento rodoviário
-- `planejamento.py` — Geração de guia turístico com Gemini AI
+- `services/clima.py` e `services/rotas.py` — Funções de clima e roteamento rodoviário
+- `services/gemini.py`, `services/sanitizacao.py` e `services/contingencia.py` — Geração de guia turístico com Gemini AI
 
 ### 💻 Implementações de Código
 
-#### `services.py` — Integração com Open-Meteo Weather e OSRM
+#### `services/clima.py` e `services/rotas.py` — Integração com Open-Meteo Weather e OSRM
 
 ```python
 def obter_clima(client: httpx.Client, lat: float, lon: float) -> dict[str, str]:
@@ -110,7 +125,7 @@ def obter_percurso(
     pass
 ```
 
-#### `planejamento.py` — Integração com Gemini AI e Fallback
+#### `services/gemini.py`, `services/sanitizacao.py` e `services/contingencia.py` — Integração com Gemini AI e Fallback
 
 ```python
 def limpar_formato_texto(texto: str) -> str:
@@ -152,11 +167,11 @@ def obter_guia_destino(destino: str) -> str:
 ## 👤 Mikaelle Barroso — Backend Gateway, Sessões, Idempotência & Persistência JSON
 
 ### 📁 Arquivos sob responsabilidade
-- `app.py` — Rotas principais, sessões, lock de concorrência, persistência JSON e sanitização de entradas
+- `controllers/` (`main`, `auth`, `viagem`) e `models/viagem_repository.py` — Rotas principais, sessões, lock de concorrência, persistência JSON e sanitização de entradas (`controllers/validacao.py`)
 
 ### 💻 Implementações de Código
 
-#### `app.py` — Rotas, Sessões e Idempotência
+#### `controllers/` — Rotas, Sessões e Idempotência (Blueprints do Flask)
 
 ```python
 app = Flask(__name__)
@@ -172,7 +187,7 @@ lock_requisicoes = threading.Lock()
 # 6. POST /viagens/deletar/<id> → Remove o roteiro específico do usuário logado
 ```
 
-#### `app.py` — Persistência JSON Thread-Safe e Sanitização
+#### `models/viagem_repository.py` e `controllers/validacao.py` — Persistência JSON Thread-Safe e Sanitização
 
 ```python
 lock_arquivo_json = threading.RLock()

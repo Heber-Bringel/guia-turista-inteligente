@@ -244,8 +244,11 @@ def gerar_guia_contingencia(destino: str) -> str:
     )
 
 
-def _executar_chamada_gemini(destino: str) -> str:
-    """Executa a chamada síncrona ao SDK Google GenAI com engenharia de prompt avançada e ultra-rápida."""
+def _executar_chamada_gemini(destino: str) -> tuple[str, str]:
+    """Executa a chamada síncrona ao SDK Google GenAI com engenharia de prompt avançada e ultra-rápida.
+
+    Retorna a tupla (texto_gerado, modelo_que_respondeu).
+    """
     chave_api = os.getenv("GEMINI_API_KEY", GEMINI_KEY)
     client = genai.Client(api_key=chave_api)
 
@@ -294,7 +297,7 @@ def _executar_chamada_gemini(destino: str) -> str:
                 config=config_rapida,
             )
             if resposta.text:
-                return resposta.text
+                return resposta.text, modelo
         except APIError as e:
             ultimo_erro = e
             # Se for chave inválida (código 400), não adianta tentar outros modelos
@@ -310,7 +313,7 @@ def _executar_chamada_gemini(destino: str) -> str:
                     contents=prompt,
                 )
                 if resposta.text:
-                    return resposta.text
+                    return resposta.text, modelo
             except Exception as e_inner:  # noqa: BLE001
                 ultimo_erro = e_inner
                 continue
@@ -340,16 +343,18 @@ def obter_guia_destino_com_diagnostico(destino: str) -> tuple[str, dict[str, Any
         }
         return guia_contingencia, diagnostico
 
-    # Isolamento com ThreadPoolExecutor para garantir timeout estrito de 6.0s
+    # Isolamento com ThreadPoolExecutor para garantir timeout estrito de 6.0s.
+    # O executor não usa 'with': o __exit__ chamaria shutdown(wait=True) e a requisição
+    # ficaria presa esperando a thread do Gemini terminar, mesmo após o timeout.
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_executar_chamada_gemini, destino)
-            texto_bruto = future.result(timeout=6.0)
+        future = executor.submit(_executar_chamada_gemini, destino)
+        texto_bruto, modelo_utilizado = future.result(timeout=6.0)
 
         texto_formatado = limpar_formato_texto(texto_bruto)
         diagnostico = {
             "status": "sucesso",
-            "modelo": MODELO_OFICIAL,
+            "modelo": modelo_utilizado,
             "fallback_utilizado": False,
         }
         return texto_formatado, diagnostico
@@ -373,6 +378,10 @@ def obter_guia_destino_com_diagnostico(destino: str) -> tuple[str, dict[str, Any
             "motivo": f"Falha na API Gemini: {erro}",
         }
         return guia_contingencia, diagnostico
+
+    finally:
+        # Libera a requisição imediatamente; a thread em andamento termina sozinha em segundo plano
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 def obter_guia_destino(destino: str) -> str:

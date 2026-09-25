@@ -119,11 +119,14 @@ def salvar_dados_viagens_json(dados_completos: dict[str, Any]) -> None:
                 )
             }
             dados_completos["total_usuarios"] = len(dados_completos["usuarios"])
-            dados_completos["total_roteiros"] = sum(
-                len(u.get("roteiros", u.get("viagens", [])))
-                for u in dados_completos["usuarios"].values()
-                if isinstance(u, dict)
-            )
+
+            total_roteiros = 0
+            for u in dados_completos["usuarios"].values():
+                if isinstance(u, dict):
+                    roteiros_u = u.get("roteiros") or u.get("viagens")
+                    if isinstance(roteiros_u, list):
+                        total_roteiros += len(roteiros_u)
+            dados_completos["total_roteiros"] = total_roteiros
 
         with VIAGENS_FILE.open("w", encoding="utf-8") as arquivo:
             json.dump(
@@ -220,12 +223,6 @@ def adicionar_viagem_usuario(
             "atualizado_em": roteiros[-1].get("criado_em", agora_iso) if roteiros else agora_iso,
         }
 
-        dados["total_roteiros"] = sum(
-            len(u.get("roteiros", u.get("viagens", [])))
-            for u in usuarios.values()
-            if isinstance(u, dict)
-        )
-
         dados["total_usuarios"] = len(usuarios)
 
         salvar_dados_viagens_json(dados)
@@ -279,12 +276,6 @@ def remover_viagem_usuario(user_id: str, viagem_id: str) -> None:
             "criado_em": novos_roteiros[0].get("criado_em", "") if novos_roteiros else "",
             "atualizado_em": novos_roteiros[-1].get("criado_em", "") if novos_roteiros else "",
         }
-
-        dados["total_roteiros"] = sum(
-            len(usuario_item.get("roteiros", usuario_item.get("viagens", [])))
-            for usuario_item in usuarios.values()
-            if isinstance(usuario_item, dict)
-        )
 
         salvar_dados_viagens_json(dados)
 
@@ -447,23 +438,30 @@ def criar_viagem():
 
     try:
         with httpx.Client() as client:
-            lat_origem, lon_origem, nome_origem = buscar_coordenadas(
+            lat_origem, lon_origem, uf_origem_det = buscar_coordenadas(
                 client,
                 origem_cidade,
                 origem_uf,
             )
 
-            lat_destino, lon_destino, nome_destino = buscar_coordenadas(
+            lat_destino, lon_destino, uf_destino_det = buscar_coordenadas(
                 client,
                 destino_cidade,
                 destino_uf,
             )
 
+            # Garante o uso da UF real detectada pelo Geocoding (ex: Teresina / RJ -> corrigido para PI)
+            uf_origem_final = uf_origem_det or origem_uf
+            uf_destino_final = uf_destino_det or destino_uf
+
+            nome_origem = f"{origem_cidade} - {uf_origem_final}"
+            nome_destino = f"{destino_cidade} - {uf_destino_final}"
+
             clima_destino = obter_clima(
                 client,
                 lat_destino,
                 lon_destino,
-            )
+            ) or {"temperatura": "N/D", "umidade": "N/D", "vento": "N/D"}
 
             percurso = obter_percurso(
                 client,
@@ -471,11 +469,14 @@ def criar_viagem():
                 lon_origem,
                 lat_destino,
                 lon_destino,
-            )
-            
-            dicas_destino, diagnostico_ia = obter_guia_destino_com_diagnostico(
-                nome_destino
-            )            
+            ) or {"distancia": "N/D", "tempo": "N/D", "modal": "carro"}
+
+            res_ia = obter_guia_destino_com_diagnostico(nome_destino)
+            if isinstance(res_ia, tuple) and len(res_ia) == 2:
+                dicas_destino, diagnostico_ia = res_ia
+            else:
+                dicas_destino = str(res_ia or "Guia temporariamente indisponível.")
+                diagnostico_ia = {"status": "fallback", "fallback": True}
             agora_iso = datetime.now(timezone.utc).isoformat()
             viagem = {
                 "id": uuid.uuid4().hex[:8],
@@ -485,13 +486,13 @@ def criar_viagem():
                 "geolocalizacao": {
                     "origem": {
                         "cidade": origem_cidade,
-                        "uf": origem_uf,
+                        "uf": uf_origem_final,
                         "latitude": lat_origem,
                         "longitude": lon_origem,
                     },
                     "destino": {
                         "cidade": destino_cidade,
-                        "uf": destino_uf,
+                        "uf": uf_destino_final,
                         "latitude": lat_destino,
                         "longitude": lon_destino,
                     },
@@ -570,11 +571,11 @@ def _obter_roteiros_visitante_ativo() -> tuple[str, list[dict[str, Any]]] | None
     Retorna None se qualquer condição não for satisfeita.
     """
     usuario = session.get("usuario")
-    if not usuario:
+    if not usuario or not isinstance(usuario, dict):
         return None
 
-    user_id: str = usuario.get("id", "")
-    if not user_id.startswith(("visitante_", "visitante-")):
+    user_id = str(usuario.get("id", ""))
+    if not eh_usuario_visitante(user_id, usuario):
         return None
 
     with lock_arquivo_json:

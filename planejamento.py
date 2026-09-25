@@ -3,9 +3,11 @@
 import concurrent.futures
 import os
 import re
+import unicodedata
 from typing import Any
 
 from google import genai
+from google.genai import types
 from google.genai.errors import APIError
 
 from config import GEMINI_KEY
@@ -172,36 +174,66 @@ _GUIAS_CURADOS: dict[str, dict[str, Any]] = {
         ],
         "dica": "Faça um passeio de catamarã pelo Rio Capibaribe no fim de tarde para admirar as pontes iluminadas que conferem a Recife o charme da 'Veneza Brasileira'. Experimente a tapioca recheada com coco ralado no Alto da Sé em Olinda.",
     },
+    "tiangua": {
+        "pontos": [
+            "Sítio do Bosco Park: Complexo ecológico no topo da Serra da Ibiapaba com mirante panorâmico sobre o vale, rampa de voo livre para parapente e piscina natural de água corrente.",
+            "Cachoeira do Pinga e Cachoeira da Sete: Quedas d'água em meio à mata nativa com poços cristalinos refrescantes e trilhas ecológicas preservadas.",
+            "Catedral de Sant'Anna (Igreja Matriz): Edificação histórica imponente no centro da cidade com vitrais coloridos e praça arborizada acolhedora.",
+            "Complexo Chapada da Ibiapaba e Ecoparque Cassauro: Mirantes da serra, tirolesa, arvorismo e passeios a engenhos tradicionais de rapadura e alambiques artesanais.",
+        ],
+        "roteiro": [
+            "Manhã: Subida ao Sítio do Bosco bem cedo para contemplar o nascer do sol e a neblina matinal (serração) cobrindo as encostas da serra.",
+            "Tarde: Banho refrescante na Cachoeira do Pinga e visita aos alambiques e engenhos locais para degustar rapadura batida com castanha.",
+            "Noite: Passeio a pé pela Praça da Catedral, aproveitando o clima frio de serra para provar cafés regionais e a gastronomia local.",
+        ],
+        "culinaria": [
+            "Galinha caipira ao molho pardo cozida em panela de barro com pirão escaldado e macaxeira frita.",
+            "Carne de sol na nata da serra com feijão verde, queijo coalho tostado e farofa de manteiga da terra.",
+            "Rapadura batida cremosa com castanha de caju, compotas de frutas da estação e licores artesanais de jabuticaba e maracujá da Ibiapaba.",
+        ],
+        "dica": "O clima na serra de Tianguá é surpreendentemente ameno e frio à noite (muitas vezes abaixo de 18°C), exigindo agasalho na bagagem. Para registrar fotos com horizonte aberto nos mirantes, dê preferência ao horário entre 10h e 14h, quando a névoa matinal se dissipa.",
+    },
 }
 
 
 def gerar_guia_contingencia(destino: str) -> str:
     """Gera roteiro estruturado determinístico em texto puro com emojis em caso de falha da IA."""
     nome_destino = destino.strip() or "Destino Selecionado"
-    nome_chave = re.sub(r"\s*-\s*[A-Z]{2}$", "", nome_destino).strip().lower()
+    nome_sem_uf = re.sub(r"\s*-\s*[A-Z]{2}$", "", nome_destino).strip()
+    nfkd = unicodedata.normalize("NFKD", nome_sem_uf)
+    nome_chave = "".join(c for c in nfkd if not unicodedata.combining(c)).lower()
 
-    # Se o destino for uma das principais capitais mapeadas, entrega curadoria refinada
+    # Se o destino for uma das cidades mapeadas, entrega curadoria refinada
     for chave, dados in _GUIAS_CURADOS.items():
         if chave in nome_chave or nome_chave in chave:
             pontos_txt = "\n".join(f"• {p}" for p in dados["pontos"])
+            roteiro_bloco = ""
+            if "roteiro" in dados:
+                roteiro_txt = "\n".join(f"• {r}" for r in dados["roteiro"])
+                roteiro_bloco = f"\n🗺️ ROTEIRO RECOMENDADO (PASSO A PASSO)\n{roteiro_txt}\n"
             culinaria_txt = "\n".join(f"• {c}" for c in dados["culinaria"])
             dica_txt = f"• {dados['dica']}"
             return (
                 f"🏛️ PONTOS TURÍSTICOS PRINCIPAIS\n"
-                f"{pontos_txt}\n\n"
+                f"{pontos_txt}\n"
+                f"{roteiro_bloco}\n"
                 f"🍲 CULINÁRIA LOCAL & GASTRONOMIA\n"
                 f"{culinaria_txt}\n\n"
                 f"💡 DICA DE OURO DO VIAJANTE\n"
                 f"{dica_txt}"
             )
 
-    # Para outras cidades brasileiras, gera um guia regionalmente contextualizado
+    # Para outras cidades brasileiras, gera um guia regionalmente contextualizado e detalhado
     return (
         f"🏛️ PONTOS TURÍSTICOS PRINCIPAIS\n"
         f"• Explore os principais cartões-postais históricos, igrejas seculares e praças centrais de {nome_destino}.\n"
         f"• Visite os parques naturais, reservas ecológicas e mirantes panorâmicos que revelam a beleza da geografia local.\n"
         f"• Conheça o mercado municipal de artesanato e os centros culturais para vivenciar as tradições e costumes populares.\n"
         f"• Realize passeios guiados aos atrativos ecológicos e monumentos mais emblemáticos da região.\n\n"
+        f"🗺️ ROTEIRO RECOMENDADO (PASSO A PASSO)\n"
+        f"• Manhã: Passeio histórico matinal pelas praças centrais e mirantes panorâmicos com temperaturas amenas.\n"
+        f"• Tarde: Visita a reservas ecológicas, cachoeiras ou feiras de artesanato e produtos da terra.\n"
+        f"• Noite: Jantar em restaurantes de comida caseira típica e convivência nos principais polos da cidade.\n\n"
         f"🍲 CULINÁRIA LOCAL & GASTRONOMIA\n"
         f"• Saboreie os pratos típicos regionais preparados com temperos frescos e ingredientes nativos da culinária local.\n"
         f"• Experimente doces artesanais, compotas de frutas da estação e bebidas típicas consagradas pelos moradores.\n"
@@ -213,32 +245,44 @@ def gerar_guia_contingencia(destino: str) -> str:
 
 
 def _executar_chamada_gemini(destino: str) -> str:
-    """Executa a chamada síncrona ao SDK Google GenAI com engenharia de prompt restritiva."""
-    client = genai.Client(api_key=GEMINI_KEY)
+    """Executa a chamada síncrona ao SDK Google GenAI com engenharia de prompt avançada e ultra-rápida."""
+    chave_api = os.getenv("GEMINI_API_KEY", GEMINI_KEY)
+    client = genai.Client(api_key=chave_api)
 
     prompt = (
-        f"Você é um consultor turístico especialista no Brasil. Crie um guia turístico detalhado, fascinante e prático para a cidade de {destino}.\n\n"
-        "ESTRUTURA OBRIGATÓRIA:\n"
-        "O guia DEVE conter exatamente estas 3 seções, cada uma encabeçada pelo título com emoji indicado:\n"
+        f"Você é um renomado consultor turístico especialista no Brasil. "
+        f"Crie um roteiro e guia turístico aprofundado, autêntico, dinâmico e altamente específico para a cidade de {destino}. "
+        "Seja envolvente, objetivo e direto ao ponto (1 a 2 frases por tópico).\n\n"
+        "ESTRUTURA OBRIGATÓRIA (utilize exatamente estes títulos com emojis):\n"
         "🏛️ PONTOS TURÍSTICOS PRINCIPAIS\n"
-        "(Liste 3 a 4 atrações imperdíveis com nomes reais de praias, monumentos, parques ou museus, detalhando o que fazer em cada um em formato de tópicos com bullet •)\n\n"
+        "• Cite 3 atrações imperdíveis com nomes reais, pontos de referência exatos e experiências marcantes "
+        "(mirantes, cachoeiras, igrejas históricas, reservas naturais ou sítios da região) em até 2 frases objetivas por bullet •.\n\n"
+        "🗺️ ROTEIRO RECOMENDADO (PASSO A PASSO)\n"
+        "• Manhã: Experiência matinal imperdível em 1 ou 2 frases (ex: nascer do sol, mirante matinal, caminhada ou centro histórico).\n"
+        "• Tarde: Passeio vespertino em 1 ou 2 frases (ex: trilha, cachoeira com banho refrescante, alambique/engenho tradicional ou feira).\n"
+        "• Noite: Vivência noturna autêntica em 1 ou 2 frases (ex: praça principal movimentada, polo gastronômico ou cafés aconchegantes).\n\n"
         "🍲 CULINÁRIA LOCAL & GASTRONOMIA\n"
-        "(Cite 3 pratos típicos tradicionais, ingredientes regionais e sobremesas que o visitante não pode deixar de provar, em formato de tópicos com bullet •)\n\n"
+        "• Descreva 3 pratos típicos genuínos, quitutes, bebidas ou sobremesas tradicionais da culinária da região com nomes reais populares em 1 ou 2 frases cada.\n\n"
         "💡 DICA DE OURO DO VIAJANTE\n"
-        "(1 a 2 recomendações práticas valiosas de segredos locais, melhor horário para fotos, transporte ou economia, em formato de tópicos com bullet •)\n\n"
-        "REGRAS E RESTRIÇÕES ESTREITAS:\n"
-        "- Responda EXCLUSIVAMENTE em texto puro com emojis.\n"
-        "- NÃO utilize nenhuma marcação Markdown (NÃO use asteriscos *, nem **, nem hashtags #, nem crases `).\n"
-        "- NÃO inclua saudações iniciais (ex: 'Olá', 'Com certeza! Aqui está...') nem despedidas (ex: 'Boa viagem!').\n"
-        "- Comece a resposta imediatamente pelo título '🏛️ PONTOS TURÍSTICOS PRINCIPAIS'."
+        "• Forneça 2 recomendações práticas de alto valor sobre melhor horário para fotos/mirantes, agasalhos para o clima da serra ou feiras locais (1 ou 2 frases cada).\n\n"
+        "REGRAS ESTREITAS DE FORMATO:\n"
+        "- Responda EXCLUSIVAMENTE em texto puro com emojis legíveis.\n"
+        "- NÃO use nenhuma marcação Markdown (NÃO use asteriscos *, nem **, nem hashtags #, nem sublinhados _, nem crases `).\n"
+        "- NÃO inclua saudações iniciais (ex: 'Olá', 'Com certeza!') nem despedidas (ex: 'Boa viagem!'). Comece imediatamente pelo título '🏛️ PONTOS TURÍSTICOS PRINCIPAIS'."
     )
 
-    # Tenta os modelos disponíveis com prioridade
+    # Configuração com thinking_budget=0 e limite de tokens para latência mínima (<3.5s), garantindo resposta antes do timeout
+    config_rapida = types.GenerateContentConfig(
+        thinking_config=types.ThinkingConfig(thinking_budget=0),
+        temperature=0.7,
+        max_output_tokens=650,
+    )
+
+    # Tenta os modelos disponíveis com prioridade (gemini-2.5-flash responde em ~2.5s garantindo compliance com o timeout de 6s)
     modelos_para_tentar = [
-        MODELO_OFICIAL,
         "gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
+        MODELO_OFICIAL,
+        "gemini-2.5-flash-lite",
     ]
 
     ultimo_erro: Exception | None = None
@@ -247,6 +291,7 @@ def _executar_chamada_gemini(destino: str) -> str:
             resposta = client.models.generate_content(
                 model=modelo,
                 contents=prompt,
+                config=config_rapida,
             )
             if resposta.text:
                 return resposta.text
@@ -256,9 +301,19 @@ def _executar_chamada_gemini(destino: str) -> str:
             if "API key not valid" in str(e) or e.code == 400:
                 raise
             continue
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             ultimo_erro = e
-            raise
+            # Se a falha for na configuração, tenta fallback simples sem config
+            try:
+                resposta = client.models.generate_content(
+                    model=modelo,
+                    contents=prompt,
+                )
+                if resposta.text:
+                    return resposta.text
+            except Exception as e_inner:  # noqa: BLE001
+                ultimo_erro = e_inner
+                continue
 
     if ultimo_erro:
         raise ultimo_erro
@@ -267,14 +322,15 @@ def _executar_chamada_gemini(destino: str) -> str:
 
 
 def obter_guia_destino_com_diagnostico(destino: str) -> tuple[str, dict[str, Any]]:
-    """Invoca o modelo 'gemini-3.6-flash' com timeout de 6.0s em ThreadPoolExecutor.
+    """Invoca o modelo Gemini com timeout de 6.0s em ThreadPoolExecutor.
 
     Em caso de timeout, chave inválida ou ausência de cota, aciona automaticamente
     o gerador de contingência com roteiro estruturado em texto puro com emojis.
     Retorna a tupla (texto_guia, diagnostico_metadados).
     """
+    chave_atual = os.getenv("GEMINI_API_KEY", GEMINI_KEY)
     # Validação rápida de chave vazia
-    if not GEMINI_KEY or GEMINI_KEY.strip() == "" or GEMINI_KEY == "SUA_CHAVE_AQUI":
+    if not chave_atual or chave_atual.strip() == "" or chave_atual == "SUA_CHAVE_AQUI":
         guia_contingencia = gerar_guia_contingencia(destino)
         diagnostico: dict[str, Any] = {
             "status": "fallback",

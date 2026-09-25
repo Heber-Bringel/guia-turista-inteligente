@@ -146,7 +146,16 @@
           <!-- Detalhes do Guia com Accordion -->
           <div id="detalhes-{{ v.id }}" class="viagem-detalhes hidden" onclick="event.stopPropagation()">
             <div class="secao-guia">
-              <div class="secao-guia-header">🏛️ Guia Turístico & Culinária do Destino</div>
+              <div class="secao-guia-header" style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                <span>🏛️ Guia Turístico & Culinária do Destino</span>
+                {% if v.diagnostico_ia %}
+                  {% if v.diagnostico_ia.fallback_utilizado %}
+                    <span class="badge-fallback" title="{{ v.diagnostico_ia.motivo }}" style="font-size: 0.72rem; font-weight: 600; background: #fef3c7; color: #b45309; padding: 2px 8px; border-radius: 999px; border: 1px solid #fde68a;">⚠️ Modo Contingência (Offline)</span>
+                  {% else %}
+                    <span class="badge-ia" title="Modelo: {{ v.diagnostico_ia.modelo }}" style="font-size: 0.72rem; font-weight: 600; background: #dcfce7; color: #15803d; padding: 2px 8px; border-radius: 999px; border: 1px solid #bbf7d0;">✨ Gerado por Gemini IA</span>
+                  {% endif %}
+                {% endif %}
+              </div>
               <div class="guia-texto">{{ v.dicas_destino }}</div>
             </div>
           </div>

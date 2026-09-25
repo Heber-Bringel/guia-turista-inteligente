@@ -10,12 +10,18 @@ Testa:
 
 import os
 import sys
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 import httpx
 
 import config
 import planejamento
-from services import obter_clima, obter_percurso
 from planejamento import limpar_formato_texto, obter_guia_destino_com_diagnostico
+from services import obter_clima, obter_percurso
 
 
 def testar_clima():

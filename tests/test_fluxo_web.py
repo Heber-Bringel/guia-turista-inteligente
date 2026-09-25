@@ -23,13 +23,18 @@ os.environ["GEMINI_API_KEY"] = ""  # sem chave -> guia de contingência imediato
 
 import app as aplicacao
 
-# Coordenadas com 5 casas decimais, como devolve a API real (a tabela de capitais do fallback usa 3)
+# Candidatos por nome de cidade (lat, lon, admin1), com 5 casas decimais como a API real
+# (a tabela de capitais do fallback usa 3 casas)
 CIDADES = {
-    "teresina": (-5.08917, -42.80194, "Piauí"),
-    "fortaleza": (-3.71722, -38.54306, "Ceará"),
-    "salvador": (-12.97111, -38.51083, "Bahia"),
-    "recife": (-8.05389, -34.88111, "Pernambuco"),
+    "teresina": [(-5.08917, -42.80194, "Piauí")],
+    "fortaleza": [(-3.71722, -38.54306, "Ceará")],
+    "salvador": [(-12.97111, -38.51083, "Bahia")],
+    "recife": [(-8.05389, -34.88111, "Pernambuco")],
+    "santa maria": [(-7.50139, -38.40472, "Paraíba"), (-29.68417, -53.80694, "Rio Grande do Sul")],
 }
+
+# Parâmetros recebidos pelo simulador do geocoding (para conferir o que o código envia à API)
+PARAMS_GEOCODING: list[dict[str, Any]] = []
 
 
 def _resposta(url: str, params: dict | None) -> httpx.Response:
@@ -37,12 +42,15 @@ def _resposta(url: str, params: dict | None) -> httpx.Response:
     req = httpx.Request("GET", url)
     corpo: dict[str, Any]
     if "geocoding-api" in url:
-        nome = str((params or {}).get("name", "")).split()[0].lower()
-        if nome in CIDADES:
-            lat, lon, estado = CIDADES[nome]
-            corpo = {"results": [{"name": nome.title(), "latitude": lat, "longitude": lon, "admin1": estado}]}
-        else:
-            corpo = {}
+        PARAMS_GEOCODING.append(dict(params or {}))
+        nome = str((params or {}).get("name", "")).strip().lower()
+        candidatos = CIDADES.get(nome, [])
+        corpo = {
+            "results": [
+                {"name": nome.title(), "latitude": lat, "longitude": lon, "admin1": estado, "country_code": "BR"}
+                for lat, lon, estado in candidatos
+            ]
+        } if candidatos else {}
         return httpx.Response(200, json=corpo, request=req)
     if "api.open-meteo.com" in url:
         corpo = {"current": {"temperature_2m": 28.5, "relative_humidity_2m": 40, "wind_speed_10m": 12.0}}
@@ -81,6 +89,7 @@ class FluxoWebTest(unittest.TestCase):
         self.json = self.pasta / "viagens.json"
         _apontar_json(self.json)
         _limpar_estado_memoria()
+        PARAMS_GEOCODING.clear()
         patcher = mock.patch.object(httpx.Client, "get", lambda self, url, **kw: _resposta(str(url), kw.get("params")))
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -212,6 +221,30 @@ class FluxoWebTest(unittest.TestCase):
         roteiro = self.dados()["usuarios"]["user1"]["roteiros"][-1]
         self.assertEqual(roteiro["origem"], "Teresina - PI")
         self.assertEqual(roteiro["geolocalizacao"]["origem"]["uf"], "PI")
+
+    def test_geocoding_usa_country_code_e_busca_so_pelo_nome(self):
+        self.cliente_logado().post("/viagens/criar", data=FORM)
+        self.assertTrue(PARAMS_GEOCODING)
+        for params in PARAMS_GEOCODING:
+            self.assertEqual(params.get("countryCode"), "BR")
+            self.assertNotIn("country_codes", params)  # parâmetro ignorado pela API
+            self.assertNotIn(" PI", str(params["name"]))  # "cidade + UF" no mesmo texto não retorna nada
+        self.assertEqual([p["name"] for p in PARAMS_GEOCODING], ["Teresina", "Fortaleza"])
+
+    def test_geocoding_escolhe_o_homonimo_da_uf_informada(self):
+        c = self.cliente_logado()
+        c.post("/viagens/criar", data={**FORM, "origem_cidade": "Santa Maria", "origem_uf": "RS"})
+        origem = self.dados()["usuarios"]["user1"]["roteiros"][-1]["geolocalizacao"]["origem"]
+        self.assertEqual((origem["uf"], origem["latitude"]), ("RS", -29.68417))
+        c.post("/viagens/criar", data={**FORM, "origem_cidade": "Santa Maria", "origem_uf": "PB"})
+        origem = self.dados()["usuarios"]["user1"]["roteiros"][-1]["geolocalizacao"]["origem"]
+        self.assertEqual((origem["uf"], origem["latitude"]), ("PB", -7.50139))
+
+    def test_uf_divergente_usa_as_coordenadas_da_cidade_real(self):
+        self.cliente_logado().post("/viagens/criar", data={**FORM, "origem_uf": "RJ"})
+        origem = self.dados()["usuarios"]["user1"]["roteiros"][-1]["geolocalizacao"]["origem"]
+        self.assertEqual(origem["uf"], "PI")
+        self.assertEqual(origem["latitude"], -5.08917)  # Teresina (PI), e não a capital do RJ
 
     # --- visitante: avatar -------------------------------------------------------------------
     def test_visitante_possui_avatar_valido(self):

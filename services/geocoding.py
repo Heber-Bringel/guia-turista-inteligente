@@ -1,6 +1,7 @@
 """Serviço de geocodificação (Open-Meteo Geocoding) e normalização da UF."""
 
 import unicodedata
+from typing import Any
 
 import httpx
 
@@ -72,21 +73,36 @@ _COORDS_CAPITAIS: dict[str, tuple[float, float]] = {
 }
 
 
+def _escolher_resultado(resultados: list[dict[str, Any]], uf: str) -> dict[str, Any]:
+    """Escolhe entre os candidatos da API o que pertence à UF informada (via `admin1`).
+
+    Se nenhum candidato estiver na UF digitada, devolve o primeiro (o mais relevante para a API):
+    é assim que uma UF errada (ex: Teresina / RJ) acaba corrigida pela UF real da cidade.
+    """
+    uf_informada = uf.strip().upper()
+    for candidato in resultados:
+        if obter_sigla_uf(str(candidato.get("admin1", ""))) == uf_informada:
+            return candidato
+    return resultados[0]
+
+
 def buscar_coordenadas(
     client: httpx.Client, cidade: str, uf: str = ""
 ) -> tuple[float, float, str]:
-    """Consulta o Open-Meteo Geocoding com filtro Brasil (country_codes=BR) e timeout=4.0s.
+    """Consulta o Open-Meteo Geocoding com filtro Brasil (countryCode=BR) e timeout=4.0s.
 
-    Retorna a tupla (latitude, longitude, uf_oficial_detectada). Caso a busca falhe,
-    aplica fallback retornando as coordenadas da capital da UF informada.
+    Retorna a tupla (latitude, longitude, uf_oficial_detectada). A UF vem do campo `admin1` do
+    resultado escolhido. Caso a busca falhe, aplica fallback retornando as coordenadas da capital
+    da UF informada.
     """
-    nome_busca = f"{cidade.strip()} {uf.strip()}".strip()
     url = "https://geocoding-api.open-meteo.com/v1/search"
+    # A API aceita o nome da cidade sozinho: "cidade + UF" no mesmo texto não devolve resultados.
+    # O filtro de país se chama `countryCode` (o parâmetro `country_codes` é ignorado pela API).
     params: dict[str, str | int] = {
-        "name": nome_busca,
-        "count": 5,
+        "name": cidade.strip(),
+        "count": 10,
         "language": "pt",
-        "country_codes": "BR",
+        "countryCode": "BR",
     }
 
     try:
@@ -95,10 +111,10 @@ def buscar_coordenadas(
         resultados = resposta.json().get("results")
 
         if resultados:
-            primeiro = resultados[0]
-            lat: float = primeiro.get("latitude", 0.0)
-            lon: float = primeiro.get("longitude", 0.0)
-            admin1: str = primeiro.get("admin1", "")
+            escolhido = _escolher_resultado(resultados, uf)
+            lat: float = escolhido.get("latitude", 0.0)
+            lon: float = escolhido.get("longitude", 0.0)
+            admin1: str = escolhido.get("admin1", "")
             uf_detectada = obter_sigla_uf(admin1, uf)
             return lat, lon, uf_detectada
 

@@ -1,7 +1,7 @@
-# Divisão de Tarefas — Unidade II: FastAPI e React
+# Divisão de Tarefas — Unidade II: FastAPI, React e TypeScript
 
 > **Curso:** Automação Web e Python — Unidade II
-> **Atividade:** Guia do Turista Inteligente — Microsserviço FastAPI e SPA React 19
+> **Atividade:** Guia do Turista Inteligente — Microsserviço FastAPI e SPA React 19 com TypeScript
 > **Equipe:** Héber Bringel, Douglas Leone e Mikaelle Barroso
 > **Enunciado:** [Atividade 2 — Guia do Turista Inteligente](https://maykolsampaio.github.io/cursos-maykol/cursos/automacao-web-python/unidade-2/atividade-2/)
 
@@ -11,7 +11,7 @@ O enunciado distribui a apresentação entre quatro papéis. Como a equipe conti
 
 | Papel previsto no enunciado | Responsável na equipe | Adaptação |
 |---|---|---|
-| Aluno 1 — Frontend Developer | **Héber Bringel** | SPA React, integração REST/SSE, mapa, geolocalização e sessão híbrida |
+| Aluno 1 — Frontend Developer | **Héber Bringel** | SPA React com TypeScript, integração REST/SSE, mapa, geolocalização e sessão híbrida |
 | Aluno 2 — Backend Core Engineer | **Mikaelle Barroso** | FastAPI, contratos, orquestração assíncrona, concorrência, persistência e telemetria |
 | Aluno 3 — Data & Altimetry Engineer | **Douglas Leone** | APIs geoespaciais, altimetria, autonomia, custos, Gemini, streaming e GPX |
 | Aluno 4 — DevOps, QA & Streaming Lead | **Responsabilidade compartilhada** | Héber testa o frontend; Douglas responde por SSE/GPX; Mikaelle responde por métricas e testes do backend |
@@ -22,38 +22,43 @@ Cada arquivo possui um responsável principal. Alterações em arquivos de outro
 
 | Integrante | Frente principal | Entrega demonstrável |
 |---|---|---|
-| **Héber Bringel** | Frontend React, mapa e sessão híbrida | Usuário entra como visitante ou Google, planeja a viagem e visualiza rota, telemetria e histórico em uma SPA responsiva |
+| **Héber Bringel** | Frontend React com TypeScript, mapa e sessão híbrida | Usuário entra como visitante ou Google, planeja a viagem e visualiza rota, telemetria e histórico em uma SPA responsiva e tipada |
 | **Douglas Leone** | Dados de viagem, custos, IA e exportação | Rota enriquecida com clima, relevo, autonomia e custos; guia conciso transmitido por SSE; arquivo GPX válido |
 | **Mikaelle Barroso** | Núcleo FastAPI, concorrência e persistência | API validada por Pydantic, pipeline assíncrono, idempotência, cancelamento, histórico isolado e métricas operacionais |
 
-## 3. Héber Bringel — Frontend React, mapa e sessão híbrida
+## 3. Héber Bringel — Frontend React com TypeScript, mapa e sessão híbrida
 
 ### Arquivos sob responsabilidade
 
-- `frontend/src/App.jsx`
+- `frontend/src/main.tsx`
+- `frontend/src/App.tsx`
 - `frontend/src/index.css`
-- `frontend/src/services/api.js`
-- `frontend/src/services/geolocation.js`
-- `frontend/src/components/Header.jsx`
-- `frontend/src/components/RoteiroForm.jsx`
-- `frontend/src/components/MapaRota.jsx`
-- `frontend/src/components/TelemetriaCard.jsx`
-- `frontend/src/components/HistoricoViagens.jsx`
-- `frontend/src/components/GuiaViajante.jsx`
-- Testes de componentes e serviços em `frontend/src/**/*.test.jsx` e `frontend/src/**/*.test.js`
+- `frontend/src/types/api.ts`
+- `frontend/src/types/roteiro.ts`
+- `frontend/src/services/api.ts`
+- `frontend/src/services/geolocation.ts`
+- `frontend/src/components/Header.tsx`
+- `frontend/src/components/RoteiroForm.tsx`
+- `frontend/src/components/MapaRota.tsx`
+- `frontend/src/components/TelemetriaCard.tsx`
+- `frontend/src/components/HistoricoViagens.tsx`
+- `frontend/src/components/GuiaViajante.tsx`
+- `frontend/vite.config.ts` e `frontend/tsconfig.json`
+- Testes de componentes e serviços em `frontend/src/**/*.test.tsx` e `frontend/src/**/*.test.ts`
 
 ### Responsabilidades de implementação
 
-1. Criar a SPA com React 19 e Vite, consumindo a API configurada por variável de ambiente.
+1. Criar a SPA com React 19, Vite e TypeScript em modo estrito, consumindo a API configurada por variável de ambiente.
 2. Implementar o formulário de planejamento com origem, destino, estilo de viagem, dias, preferência de rota, veículo, consumo, autonomia e passageiros.
-3. Centralizar as chamadas REST em `services/api.js`, enviando `Content-Type`, credencial de sessão e `X-User-Id` quando o contrato final exigir.
-4. Consumir corretamente o streaming SSE com `ReadableStream`, preservando eventos divididos entre pacotes e encerrando a leitura quando `done` for recebido.
-5. Implementar o mapa Leaflet com traçado da rota, alternativas e marcadores das paradas sugeridas.
-6. Usar a Geolocation API e o cálculo de Haversine para alertar quando o usuário estiver a mais de 400 km da origem informada.
-7. Implementar a sessão híbrida: Google, visitante e restauração da conta salva sem novo login.
-8. Exibir estados de carregamento, erro, lista vazia e indisponibilidade parcial de provedores.
-9. Garantir layout responsivo, navegação por teclado, contraste legível e suporte a movimento reduzido.
-10. Cobrir com Vitest os fluxos de formulário, consumo da API, SSE, Haversine e atualização do histórico.
+3. Centralizar as chamadas REST em `services/api.ts`, enviando `Content-Type`, credencial de sessão e `X-User-Id` quando o contrato final exigir.
+4. Representar em `types/` os contratos da API, estados parciais, eventos SSE e propriedades dos componentes, sem usar `any` para contornar dados desconhecidos.
+5. Consumir corretamente o streaming SSE com `ReadableStream`, preservando eventos divididos entre pacotes e encerrando a leitura quando `done` for recebido.
+6. Implementar o mapa Leaflet com traçado da rota, alternativas e marcadores das paradas sugeridas.
+7. Usar a Geolocation API e o cálculo de Haversine para alertar quando o usuário estiver a mais de 400 km da origem informada.
+8. Implementar a sessão híbrida: Google, visitante e restauração da conta salva sem novo login.
+9. Exibir estados de carregamento, erro, lista vazia e indisponibilidade parcial de provedores.
+10. Garantir layout responsivo, navegação por teclado, contraste legível e suporte a movimento reduzido.
+11. Cobrir com Vitest os fluxos de formulário, consumo da API, SSE, Haversine e atualização do histórico.
 
 ### Contratos que deve combinar com a equipe
 
@@ -64,6 +69,7 @@ Cada arquivo possui um responsável principal. Alterações em arquivos de outro
 
 - Fluxo completo da SPA na porta `5173`.
 - Separação entre estado da interface e dados recebidos da API.
+- Tipagem dos contratos, propriedades, eventos e estados da aplicação, incluindo tratamento seguro de respostas desconhecidas.
 - Diferença entre requisição REST comum e leitura progressiva do SSE.
 - Uso de latitude/longitude no Haversine e regra do alerta acima de 400 km.
 - Renderização de geometria e marcadores no Leaflet.
@@ -72,12 +78,13 @@ Cada arquivo possui um responsável principal. Alterações em arquivos de outro
 
 ### Critérios de aceite da entrega
 
-- Nenhum endpoint fica escrito diretamente em vários componentes; o acesso passa por `services/api.js`.
+- Nenhum endpoint fica escrito diretamente em vários componentes; o acesso passa por `services/api.ts`.
+- O projeto usa `strict: true`, evita `any` e passa na verificação do TypeScript sem emitir arquivos.
 - O botão de planejamento impede envios repetidos e apresenta progresso.
 - Erros 401, 409, 422 e 503 são traduzidos em mensagens úteis.
 - O mapa enquadra a rota completa e funciona em celular e desktop.
 - O leitor SSE não perde caracteres nem duplica fragmentos.
-- `npm test`, `npm run lint` e `npm run build` terminam com sucesso.
+- `npm test`, `npm run lint`, `npm run typecheck` e `npm run build` terminam com sucesso.
 
 ## 4. Douglas Leone — Serviços de dados, altimetria, custos, IA e GPX
 
@@ -213,7 +220,7 @@ O formato definitivo deve aparecer no OpenAPI ou na documentação do endpoint a
 
 ## 7. Sequência de integração
 
-1. **Contrato primeiro:** Mikaelle publica schemas e exemplos de resposta; Douglas confirma os campos de serviços; Héber prepara mocks do frontend.
+1. **Contrato primeiro:** Mikaelle publica schemas e exemplos de resposta; Douglas confirma os campos de serviços; Héber cria os tipos TypeScript e os mocks do frontend.
 2. **Tracer bullet:** visitante → planejar rota simples → mostrar resultado no React, ainda sem IA, relevo ou histórico.
 3. **Dados avançados:** Douglas conecta altimetria, custos, autonomia e GPX; Héber adiciona mapa e painéis correspondentes.
 4. **Concorrência e resiliência:** Mikaelle integra `asyncio.gather`, lock, cancelamento, circuit breaker e persistência.
@@ -237,7 +244,7 @@ A apresentação total deve permanecer entre 20 e 30 minutos. Uma divisão equil
 
 | Ordem | Integrante | Tempo sugerido | Demonstração e defesa |
 |---|---|---:|---|
-| 1 | **Héber** | 7–8 min | SPA, sessão híbrida, formulário, mapa, Haversine, histórico e testes Vitest |
+| 1 | **Héber** | 7–8 min | SPA TypeScript, contratos tipados, sessão híbrida, formulário, mapa, Haversine, histórico e testes Vitest |
 | 2 | **Mikaelle** | 7–8 min | FastAPI, Pydantic, `asyncio.gather`, lock, cancelamento, persistência, métricas e Pytest |
 | 3 | **Douglas** | 7–8 min | Clima, rota, relevo, autonomia, custos, Gemini/SSE, GPX e testes dos serviços |
 | Encerramento | **Equipe** | 2–4 min | Fluxo ponta a ponta, resultados das suítes e arguição do professor |
@@ -254,5 +261,5 @@ Cada integrante deve fazer os commits dos arquivos que defenderá e dominar as d
 - [ ] Histórico e operações de roteiro respeitam o isolamento entre usuários.
 - [ ] Falhas de provedores geram degradação controlada, sem derrubar todo o planejamento.
 - [ ] GPX é válido e abre em uma ferramenta compatível.
-- [ ] Backend passa em Pytest; frontend passa em Vitest, lint e build.
+- [ ] Backend passa em Pytest; frontend passa em Vitest, lint, verificação TypeScript e build.
 - [ ] Os três integrantes ensaiaram exclusivamente o código que irão defender.

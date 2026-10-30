@@ -26,7 +26,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Criação do cliente HTTP assíncrono compartilhado com pool de conexões configurado
     limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
     timeout = httpx.Timeout(settings.TIMEOUT_SEGUNDOS, connect=5.0)
-    app.state.http_client = httpx.AsyncClient(limits=limits, timeout=timeout)
+    headers = {
+        "User-Agent": f"GuiaTuristaInteligente/{settings.APP_VERSION} (FastAPI; +https://github.com/Heber-Bringel/guia-turista-inteligente)",
+        "Accept": "application/json",
+    }
+    app.state.http_client = httpx.AsyncClient(limits=limits, timeout=timeout, headers=headers)
     logger.info("Pool de conexões httpx.AsyncClient instanciado em app.state.http_client.")
 
     # Garante existência do diretório de dados

@@ -116,8 +116,8 @@ p { text-wrap: pretty; }
 .section-heading h1, .section-heading h2 { margin: 1px 0 4px; font-size: 1.15rem; }
 .section-heading p { margin: 0; color: var(--ink-muted); font-size: .78rem; }
 .planner-form fieldset { padding: 0; border: 0; margin: 0; }
-.route-fields { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 14px; }
-.route-arrow { color: var(--brand); margin-top: 2px; }
+.route-fields { display: grid; grid-template-columns: 1fr auto 1fr; align-items: start; gap: 14px; }
+.route-arrow { color: var(--brand); margin-top: 40px; }
 .field-group { min-width: 0; }
 .field-group label { min-height: 22px; display: flex; align-items: center; gap: 6px; margin-bottom: 6px; color: var(--ink-muted); font-size: .74rem; font-weight: 700; }
 .field-group input, .field-group select { width: 100%; min-height: 44px; padding: 9px 11px; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink); background: var(--surface); font-size: .85rem; }
@@ -125,6 +125,16 @@ p { text-wrap: pretty; }
 .field-group input:hover, .field-group select:hover { border-color: var(--brand); }
 .city-state { display: grid; grid-template-columns: 1fr 76px; gap: 7px; }
 .locate-button { min-height: 30px; padding: 3px 2px; border: 0; background: none; color: var(--brand-strong); display: flex; align-items: center; gap: 5px; font-size: .7rem; font-weight: 700; cursor: pointer; }
+.locate-actions, .haversine-suggestions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
+.haversine-suggestions span { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-muted); font-size: .66rem; font-weight: 700; }
+.locate-chip { min-height: 24px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface-muted); color: var(--brand-strong); font-size: .66rem; font-weight: 700; cursor: pointer; }
+.locate-chip:hover { background: var(--brand-soft); border-color: var(--brand); }
+.route-tabs { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 22px; background: var(--surface-muted); border-bottom: 1px solid var(--line); }
+.route-tab { flex: 1; min-width: 180px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); text-align: left; cursor: pointer; }
+.route-tab.active { border-color: var(--brand); background: var(--brand-soft); }
+.route-tab strong, .route-tab small { display: block; }
+.route-tab strong { font-size: .75rem; color: var(--ink); }
+.route-tab small { margin-top: 2px; font-size: .66rem; color: var(--ink-muted); }
 .form-divider { display: flex; align-items: center; gap: 12px; margin: 20px 0 14px; color: var(--ink-muted); font-size: .7rem; font-weight: 700; }
 .form-divider::after { content: ''; height: 1px; flex: 1; background: var(--line); }
 .form-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
@@ -173,7 +183,7 @@ p { text-wrap: pretty; }
 @media (max-width: 760px) {
   .topbar { min-height: 64px; padding: 10px 14px; }.brand strong { font-size: .8rem; }.brand small { font-size: .67rem; }.brand-mark { width: 36px; height: 36px; }.auth-actions .google-button { display: none; }.restore-button { max-width: 130px; overflow: hidden; white-space: nowrap; }.button-icon span { display: none; }
   .app-main { padding: 28px 14px 48px; }.intro { align-items: flex-start; }.intro h2 { font-size: 1.75rem; }.intro-route { display: none; }
-  .planner-panel { padding: 18px 14px; }.route-fields { grid-template-columns: 1fr; gap: 10px; }.route-arrow { transform: rotate(90deg); justify-self: center; }.form-grid, .vehicle-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.vehicle-details summary span { display: none; }
+  .planner-panel { padding: 18px 14px; }.route-fields { grid-template-columns: 1fr; gap: 10px; }.route-arrow { margin-top: 0; transform: rotate(90deg); justify-self: center; }.form-grid, .vehicle-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.vehicle-details summary span { display: none; }
   .result-header { align-items: flex-start; flex-direction: column; padding: 18px 14px; }.result-actions { width: 100%; justify-content: stretch; }.result-actions .button { flex: 1; }.map-wrap { height: 320px; }.metrics { padding: 16px 14px; grid-template-columns: repeat(2, 1fr); }.telemetry-line { padding-inline: 14px; }.elevation-details, .partial-warning { margin-inline: 14px; }.guide-section { padding-inline: 14px; }.footer { padding-inline: 14px; }
 }
 

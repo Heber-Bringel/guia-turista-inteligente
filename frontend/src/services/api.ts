@@ -96,7 +96,7 @@ export async function planejarRoteiroComTelemetria(payload: PlanejamentoInput, u
   const requestId = response.headers.get('X-Request-ID') ?? undefined
   const telemetry = {
     totalTimeMs: performance.now() - startedAt,
-    ...(processHeader ? { processTimeMs: Number(processHeader) * (Number(processHeader) < 10 ? 1000 : 1) } : {}),
+    ...(processHeader ? { processTimeMs: Number(processHeader) } : {}),
     ...(requestId ? { requestId } : {}),
   }
   return { data: await response.json() as Roteiro, telemetry }

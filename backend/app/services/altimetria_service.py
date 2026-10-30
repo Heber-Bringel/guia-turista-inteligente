@@ -41,7 +41,7 @@ def _amostrar_rota(coordenadas: list[list[float]]) -> list[tuple[float, float, f
 
 async def _elevacoes_open_elevation(client: httpx.AsyncClient, pontos: list[tuple[float, float, float]]) -> list[float]:
     corpo = {"locations": [{"latitude": lat, "longitude": lon} for _, lat, lon in pontos]}
-    resposta = await client.post(URL_OPEN_ELEVATION, json=corpo, timeout=settings.TIMEOUT_ROTA)
+    resposta = await client.post(URL_OPEN_ELEVATION, json=corpo, timeout=min(settings.TIMEOUT_ROTA, 2.0))
     resposta.raise_for_status()
     return [float(item["elevation"]) for item in resposta.json()["results"]]
 

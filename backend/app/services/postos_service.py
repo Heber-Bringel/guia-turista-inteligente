@@ -82,7 +82,12 @@ async def _buscar_posto_proximo(
         f'[out:json][timeout:6];node["amenity"="{tag_amenity}"](around:{RAIO_BUSCA_M},{lat},{lon});out 10;'
     )
     try:
-        resposta = await client.post(URL_OVERPASS, data={"data": consulta}, timeout=settings.TIMEOUT_ROTA)
+        resposta = await client.post(
+            URL_OVERPASS,
+            data={"data": consulta},
+            headers={"User-Agent": "GuiaTuristaInteligente/2.0 (FastAPI)", "Accept": "application/json"},
+            timeout=min(settings.TIMEOUT_ROTA, 2.5),
+        )
         resposta.raise_for_status()
         elementos = resposta.json().get("elements") or []
     except (httpx.HTTPError, ValueError) as exc:

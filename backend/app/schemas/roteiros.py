@@ -78,6 +78,14 @@ class GeoJsonGeometry(BaseModel):
     coordinates: list[list[float]]
 
 
+class RotaAlternativa(GeoJsonGeometry):
+    """Rota alternativa: a geometria GeoJSON (compatível com o mapa) mais nome e métricas da sugestão."""
+
+    nome: str | None = None
+    distancia_km: float | None = None
+    duracao_minutos: float | None = None
+
+
 class ParadaItem(BaseModel):
     """Ponto de parada programada ao longo da rota."""
 
@@ -115,6 +123,17 @@ class ClimaInfo(BaseModel):
     descricao: str | None = None
 
 
+class PerfilAltimetricoPonto(BaseModel):
+    """Amostra do perfil de elevação ao longo da rota."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    distancia_km: float
+    altitude_m: float
+    latitude: float | None = None
+    longitude: float | None = None
+
+
 class AltimetriaInfo(BaseModel):
     """Dados de altimetria e perfil de elevação do percurso."""
 
@@ -123,7 +142,11 @@ class AltimetriaInfo(BaseModel):
     ganho_m: float | None = None
     perda_m: float | None = None
     altitude_maxima_m: float | None = None
+    altitude_minima_m: float | None = None
+    desnivel_liquido_m: float | None = None
     impacto_consumo_percentual: float | None = None
+    fonte: str | None = None
+    perfil: list[PerfilAltimetricoPonto] | None = None
 
 
 class CustosInfo(BaseModel):
@@ -383,7 +406,7 @@ class RoteiroResponse(BaseModel):
     distancia_km: float
     duracao_minutos: float
     geometria: GeoJsonGeometry
-    alternativas: list[GeoJsonGeometry] | None = None
+    alternativas: list[RotaAlternativa] | None = None
     paradas: list[ParadaItem] = Field(default_factory=list)
     atrativos: list[AtrativoItem] = Field(default_factory=list)
     clima: ClimaInfo | None = None

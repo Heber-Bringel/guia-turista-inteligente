@@ -4,6 +4,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Generator
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -35,6 +36,20 @@ def isolar_ambiente_teste(tmp_path: Path) -> Generator[None, None, None]:
             arquivo_teste.unlink()
         except OSError:
             pass
+
+
+@pytest.fixture(autouse=True)
+def bloquear_rede_externa(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Impede chamadas reais aos provedores: o transporte de rede do httpx passa a falhar nos testes.
+
+    `httpx.MockTransport` (usado nos testes dos serviços) é outra classe e continua funcionando.
+    Serviços não simulados degradam como numa queda do provedor, sem lentidão nem dependência de internet.
+    """
+
+    async def _bloqueado(self: httpx.AsyncHTTPTransport, request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("Rede externa bloqueada nos testes: simule o serviço ou use MockTransport.", request=request)
+
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", _bloqueado)
 
 
 @pytest.fixture

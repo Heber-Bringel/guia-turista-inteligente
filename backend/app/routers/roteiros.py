@@ -39,6 +39,8 @@ from app.schemas.roteiros import (
     MarcarVisitaRequest,
     ParadaItem,
     ProviderDiagnostic,
+    ProviderStatus,
+    RotaAlternativa,
     RoteiroRequest,
     RoteiroResponse,
 )
@@ -50,77 +52,14 @@ from app.services.storage_service import (
     salvar_nova_viagem,
 )
 
-# Importações seguras dos serviços do Douglas com fallbacks defensivos
-try:
-    from app.services.geocoding_service import buscar_coordenadas_async
-except ImportError:
-    async def buscar_coordenadas_async(client: httpx.AsyncClient, cidade: str, uf: str) -> tuple[float, float, str]:
-        return 0.0, 0.0, uf
-
-try:
-    from app.services.clima_service import obter_clima_async
-except ImportError:
-    async def obter_clima_async(client: httpx.AsyncClient, lat: float, lon: float) -> dict[str, Any]:
-        return {"temperatura_c": 25.0, "umidade_percentual": 50.0, "vento_kmh": 10.0, "descricao": "Indisponível"}
-
-try:
-    from app.services.rota_service import calcular_rota_osrm_async
-except ImportError:
-    async def calcular_rota_osrm_async(
-        client: httpx.AsyncClient, lat_o: float, lon_o: float, lat_d: float, lon_d: float, preferencia: str = "rapida"
-    ) -> dict[str, Any]:
-        return {
-            "distancia_km": 100.0,
-            "duracao_minutos": 60.0,
-            "geometria": {"type": "LineString", "coordinates": [[lon_o, lat_o], [lon_d, lat_d]]},
-            "paradas": [],
-        }
-
-try:
-    from app.services.altimetria_service import calcular_altimetria_async
-except ImportError:
-    async def calcular_altimetria_async(client: httpx.AsyncClient, coordenadas: list[list[float]]) -> dict[str, Any]:
-        return {"ganho_m": 100.0, "perda_m": 50.0, "altitude_maxima_m": 500.0, "impacto_consumo_percentual": 0.0}
-
-try:
-    from app.services.custos_service import calcular_custos_async
-except ImportError:
-    async def calcular_custos_async(
-        distancia_km: float, tipo_veiculo: str, consumo: float, preco: float, passageiros: int, pedagios: float = 0.0
-    ) -> dict[str, Any]:
-        custo_comb = round((distancia_km / max(consumo, 0.1)) * preco, 2)
-        total = round(custo_comb + pedagios, 2)
-        return {
-            "combustivel_ou_energia": custo_comb,
-            "pedagios": pedagios,
-            "total": total,
-            "por_passageiro": round(total / max(passageiros, 1), 2),
-            "moeda": "BRL",
-            "emissoes_kg_co2": round(distancia_km * 0.12, 1),
-        }
-
-try:
-    from app.services.gemini_service import gerar_guia_ia_async, gerar_guia_ia_stream_async
-except ImportError:
-    async def gerar_guia_ia_async(destino: str, dias: int, estilo: str) -> tuple[str, list[dict[str, Any]]]:
-        return f"Guia turístico conciso para {destino}.", []
-
-    async def gerar_guia_ia_stream_async(payload: dict[str, Any]) -> AsyncGenerator[str, None]:
-        yield f"Guia turístico transmitido via SSE para {payload.get('destino')}."
-
-try:
-    from app.services.gpx_service import gerar_gpx_async
-except ImportError:
-    async def gerar_gpx_async(roteiro: dict[str, Any]) -> str:
-        origem = roteiro.get("origem", {}).get("cidade", "Origem")
-        destino = roteiro.get("destino", {}).get("cidade", "Destino")
-        return (
-            '<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<gpx version="1.1" creator="GuiaTuristaInteligente">\n'
-            f'  <metadata><name>Roteiro {origem} para {destino}</name></metadata>\n'
-            '  <trk><name>Trajeto Principal</name><trkseg></trkseg></trk>\n'
-            '</gpx>'
-        )
+from app.services.altimetria_service import calcular_altimetria_async
+from app.services.clima_service import obter_clima_async
+from app.services.custos_service import calcular_custos_async
+from app.services.gemini_service import gerar_guia_ia_com_diagnostico_async, gerar_guia_ia_stream_async
+from app.services.geocoding_service import buscar_coordenadas_async
+from app.services.gpx_service import gerar_gpx_async
+from app.services.postos_service import localizar_paradas_async, projetar_paradas
+from app.services.rota_service import calcular_rota_osrm_async
 
 router = APIRouter(prefix="/roteiros", tags=["Roteiros"])
 
@@ -295,28 +234,93 @@ async def planejar_roteiro(
             return Response(status_code=499)
 
         # =========================================================================
-        # ESTÁGIO 3: Altimetria, Custos, Paradas e Guia IA (com degradação graciosa)
+        # ESTÁGIO 3: Altimetria, paradas e guia IA em paralelo; custos em seguida (usam o impacto do relevo)
         # =========================================================================
         cb_alt = obter_circuit_breaker("altimetria")
+        cb_postos = obter_circuit_breaker("postos")
         cb_gemini = obter_circuit_breaker("gemini")
+        coordenadas_rota = geometria_raw.get("coordinates", [])
+        destino_formatado = f"{payload.destino_cidade} - {uf_d_det or payload.destino_uf}"
 
-        # Altimetria
-        try:
-            dados_altimetria = await cb_alt.call(
-                calcular_altimetria_async,
-                client,
-                geometria_raw.get("coordinates", []),
-            )
-            diagnosticos.append(
-                ProviderDiagnostic(provedor="altimetria", status="disponivel", mensagem="Altimetria calculada")
-            )
-        except Exception as exc:
-            dados_altimetria = {"ganho_m": 0.0, "perda_m": 0.0, "altitude_maxima_m": 0.0, "impacto_consumo_percentual": 0.0}
-            diagnosticos.append(
-                ProviderDiagnostic(provedor="altimetria", status="indisponivel", mensagem=str(exc))
-            )
+        async def consultar_altimetria() -> dict[str, Any]:
+            try:
+                res = await cb_alt.call(calcular_altimetria_async, client, coordenadas_rota)
+                diagnosticos.append(
+                    ProviderDiagnostic(
+                        provedor="altimetria",
+                        status="disponivel",
+                        mensagem=f"Altimetria calculada ({res.get('fonte', 'API')})",
+                    )
+                )
+                return res
+            except Exception as exc:
+                diagnosticos.append(
+                    ProviderDiagnostic(provedor="altimetria", status="indisponivel", mensagem=str(exc))
+                )
+                return {"ganho_m": 0.0, "perda_m": 0.0, "altitude_maxima_m": 0.0, "impacto_consumo_percentual": 0.0}
 
-        # Custos
+        async def consultar_paradas() -> list[dict[str, Any]]:
+            paradas_da_rota = dados_rota.get("paradas")
+            if isinstance(paradas_da_rota, list) and paradas_da_rota:
+                return paradas_da_rota
+
+            argumentos = (coordenadas_rota, distancia_km, payload.autonomia_km, payload.tipo_veiculo)
+            try:
+                paradas = await cb_postos.call(localizar_paradas_async, client, *argumentos)
+            except Exception as exc:
+                # Sem o provedor de postos ainda é possível projetar as posições pela autonomia
+                diagnosticos.append(
+                    ProviderDiagnostic(provedor="postos", status="indisponivel", mensagem=f"Degradação: {exc}")
+                )
+                return projetar_paradas(*argumentos)
+
+            status_postos: ProviderStatus
+            if not paradas:
+                mensagem, status_postos = "Rota dentro da autonomia: nenhuma parada necessária", "disponivel"
+            elif all(p.get("estimada", True) for p in paradas):
+                mensagem, status_postos = "Posições estimadas pela autonomia; postos não confirmados", "parcial"
+            else:
+                confirmadas = sum(1 for p in paradas if not p.get("estimada", True))
+                mensagem = f"{confirmadas} de {len(paradas)} parada(s) confirmada(s) em postos reais"
+                status_postos = "disponivel"
+            diagnosticos.append(ProviderDiagnostic(provedor="postos", status=status_postos, mensagem=mensagem))
+            return paradas
+
+        async def consultar_guia() -> tuple[str, list[dict[str, Any]]]:
+            try:
+                texto, atrativos, info = await cb_gemini.call(
+                    gerar_guia_ia_com_diagnostico_async,
+                    destino_formatado,
+                    payload.dias_estadia,
+                    payload.estilo_viagem,
+                    clima_info=dados_clima,
+                )
+                if info.get("fallback_utilizado"):
+                    diagnosticos.append(
+                        ProviderDiagnostic(
+                            provedor="gemini",
+                            status="parcial",
+                            mensagem=f"Guia de contingência: {info.get('motivo')}",
+                        )
+                    )
+                else:
+                    diagnosticos.append(
+                        ProviderDiagnostic(
+                            provedor="gemini", status="disponivel", mensagem=f"Guia gerado com {info.get('modelo')}"
+                        )
+                    )
+                return texto, atrativos
+            except Exception as exc:
+                diagnosticos.append(
+                    ProviderDiagnostic(provedor="gemini", status="indisponivel", mensagem=f"Fallback acionado: {exc}")
+                )
+                return f"Roteiro cultural de contingência para {destino_formatado}.", []
+
+        dados_altimetria, paradas_brutas, (texto_guia, atrativos_ia) = await asyncio.gather(
+            consultar_altimetria(), consultar_paradas(), consultar_guia()
+        )
+
+        # Custos (o relevo aumenta o consumo)
         try:
             dados_custos = await calcular_custos_async(
                 distancia_km=distancia_km,
@@ -324,61 +328,40 @@ async def planejar_roteiro(
                 consumo=payload.consumo_medio,
                 preco=payload.preco_unidade,
                 passageiros=payload.passageiros,
+                impacto_relevo_percentual=float(dados_altimetria.get("impacto_consumo_percentual") or 0.0),
             )
         except Exception as exc:
             logger.warning("Falha no cálculo de custos: %s", exc)
             dados_custos = {"total": 0.0, "combustivel_ou_energia": 0.0, "por_passageiro": 0.0, "moeda": "BRL"}
 
-        # Guia turístico IA
-        destino_formatado = f"{payload.destino_cidade} - {uf_d_det or payload.destino_uf}"
-        try:
-            texto_guia, atrativos_ia = await cb_gemini.call(
-                gerar_guia_ia_async,
-                destino_formatado,
-                payload.dias_estadia,
-                payload.estilo_viagem,
-            )
-            diagnosticos.append(
-                ProviderDiagnostic(provedor="gemini", status="disponivel", mensagem="Guia gerado com sucesso")
-            )
-        except Exception as exc:
-            texto_guia = f"Roteiro cultural de contingência para {destino_formatado}."
-            atrativos_ia = []
-            diagnosticos.append(
-                ProviderDiagnostic(provedor="gemini", status="indisponivel", mensagem=f"Fallback acionado: {exc}")
-            )
-
         # Montagem das paradas
         paradas_lista: list[ParadaItem] = []
-        paradas_brutas = dados_rota.get("paradas", [])
-        if isinstance(paradas_brutas, list) and paradas_brutas:
-            for i, p in enumerate(paradas_brutas):
-                if isinstance(p, dict):
-                    paradas_lista.append(
-                        ParadaItem(
-                            id=p.get("id") or f"parada_{i+1}",
-                            nome=p.get("nome", f"Parada {i+1}"),
-                            latitude=float(p.get("latitude", 0.0)),
-                            longitude=float(p.get("longitude", 0.0)),
-                            distancia_origem_km=p.get("distancia_origem_km"),
-                            estimada=p.get("estimada", True),
-                            visitado=bool(p.get("visitado", False)),
-                        )
+        for i, p in enumerate(paradas_brutas):
+            if isinstance(p, dict):
+                paradas_lista.append(
+                    ParadaItem(
+                        id=p.get("id") or f"parada_{i+1}",
+                        nome=p.get("nome", f"Parada {i+1}"),
+                        latitude=float(p.get("latitude", 0.0)),
+                        longitude=float(p.get("longitude", 0.0)),
+                        distancia_origem_km=p.get("distancia_origem_km"),
+                        estimada=p.get("estimada", True),
+                        visitado=bool(p.get("visitado", False)),
                     )
-        elif distancia_km > payload.autonomia_km * 0.85:
-            # Gera parada estimada de abastecimento
-            dist_parada = round(payload.autonomia_km * 0.85, 1)
-            paradas_lista.append(
-                ParadaItem(
-                    id="parada_estimada_1",
-                    nome=f"Abastecimento/Recarga Estimada (km {dist_parada})",
-                    latitude=round((lat_o + lat_d) / 2, 4),
-                    longitude=round((lon_o + lon_d) / 2, 4),
-                    distancia_origem_km=dist_parada,
-                    estimada=True,
-                    visitado=False,
                 )
+
+        # Rotas alternativas (Sugestão 01 / 02): geometria compatível com o mapa mais nome e métricas
+        alternativas = [
+            RotaAlternativa(
+                type="LineString",
+                coordinates=alt["geometria"]["coordinates"],
+                nome=alt.get("nome"),
+                distancia_km=alt.get("distancia_km"),
+                duracao_minutos=alt.get("duracao_minutos"),
             )
+            for alt in (dados_rota.get("alternativas") or [])
+            if isinstance(alt, dict) and alt.get("geometria")
+        ]
 
         # Montagem dos atrativos
         atrativos_lista: list[AtrativoItem] = []
@@ -418,7 +401,7 @@ async def planejar_roteiro(
                 type="LineString",
                 coordinates=geometria_raw.get("coordinates", [[lon_o, lat_o], [lon_d, lat_d]]),
             ),
-            alternativas=[],
+            alternativas=alternativas,
             paradas=paradas_lista,
             atrativos=atrativos_lista,
             clima=ClimaInfo(
@@ -431,7 +414,11 @@ async def planejar_roteiro(
                 ganho_m=dados_altimetria.get("ganho_m"),
                 perda_m=dados_altimetria.get("perda_m"),
                 altitude_maxima_m=dados_altimetria.get("altitude_maxima_m"),
+                altitude_minima_m=dados_altimetria.get("altitude_minima_m"),
+                desnivel_liquido_m=dados_altimetria.get("desnivel_liquido_m"),
                 impacto_consumo_percentual=dados_altimetria.get("impacto_consumo_percentual"),
+                fonte=dados_altimetria.get("fonte"),
+                perfil=dados_altimetria.get("perfil"),
             ),
             custos=CustosInfo(
                 combustivel_ou_energia=dados_custos.get("combustivel_ou_energia"),
@@ -528,7 +515,7 @@ async def stream_guia(
             logger.error("Erro no streaming do guia IA: %s", exc)
             erro_evento = json.dumps(
                 {
-                    "chunk": f"\n[Guia indisponível temporariamente: {exc}]",
+                    "chunk": f"\n\n[Erro no streaming: {type(exc).__name__}]",
                     "done": True,
                     "fallback": True,
                 },

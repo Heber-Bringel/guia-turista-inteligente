@@ -1,0 +1,17 @@
+# Dependências do microsserviço FastAPI (Unidade II)
+# Instalação: pip install -r backend/requirements.txt
+# Execução:   cd backend && uvicorn app.main:app --port 8001 --reload
+# Testes:     cd backend && pytest tests -v
+
+# Aplicação
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.9.0
+pydantic-settings>=2.5.0
+httpx>=0.28.0
+google-genai>=1.0.0
+
+# Testes e qualidade (o plugin pytest do anyio já acompanha o Starlette)
+pytest>=8.0.0
+ruff>=0.9.0
+mypy>=1.14.0

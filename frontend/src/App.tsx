@@ -184,7 +184,7 @@ export default function App() {
         ) : (
           <div className="workspace">
             <div className="workspace-main">
-              <RoteiroForm loading={planning} disabled={!online} onSubmit={(values) => void plan(values)} onLocate={() => void locate()} locating={locating} />
+              <RoteiroForm loading={planning} disabled={!online} onSubmit={(values) => void plan(values)} onLocate={() => void locate()} locating={locating} {...(currentPosition ? { currentPosition } : {})} />
               {planning && <section className="result-skeleton" aria-label="Calculando roteiro"><div /><span /><span /><span /></section>}
               {selected && !planning && <section className="result-panel" aria-labelledby="result-title">
                 <div className="result-header"><div><span>Roteiro calculado</span><h2 id="result-title">{selected.origem.cidade} <i aria-hidden="true">→</i> {selected.destino.cidade}</h2></div><div className="result-actions"><button className="button button-secondary" type="button" onClick={openMaps}><ExternalLink size={16} /> Maps</button><button className="button button-secondary" type="button" onClick={shareWhatsApp}><MessageCircle size={16} /> WhatsApp</button><button className="button button-secondary" type="button" onClick={() => user && void baixarGpx(selected.id, user).catch((error) => setNotice({ tone: 'error', message: errorMessage(error) }))}><Download size={16} /> GPX</button></div></div>

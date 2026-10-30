@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     )
 
     GEMINI_API_KEY: str = Field(default="", description="Chave da API do Google Gemini.")
+    GEMINI_MODEL: str = Field(default="", description="Modelo preferencial do Google Gemini.")
     GOOGLE_CLIENT_ID: str = Field(
         default="", description="Client ID do Google Identity Services para validar tokens no backend."
     )
@@ -54,6 +55,13 @@ class Settings(BaseSettings):
     CIRCUIT_BREAKER_RECOVERY_TIMEOUT: float = Field(
         default=30.0, description="Tempo em segundos que o circuito permanece aberto antes de testar recuperação."
     )
+
+    def model_post_init(self, __context: object) -> None:
+        """Propaga GEMINI_MODEL para os.environ se definido no .env e ausente no ambiente."""
+        import os
+
+        if self.GEMINI_MODEL and "GEMINI_MODEL" not in os.environ:
+            os.environ["GEMINI_MODEL"] = self.GEMINI_MODEL
 
     def obter_caminho_dados(self) -> Path:
         """Resolve o caminho absoluto para o arquivo de persistência JSON."""

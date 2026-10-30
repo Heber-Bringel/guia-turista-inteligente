@@ -46,6 +46,12 @@ export interface GeoJsonLineString {
   coordinates: Array<[number, number]>
 }
 
+export interface RotaAlternativa extends GeoJsonLineString {
+  nome?: string
+  distancia_km?: number
+  duracao_minutos?: number
+}
+
 export interface Parada extends Coordenada {
   id?: string
   nome: string
@@ -93,7 +99,7 @@ export interface Roteiro {
   distancia_km: number
   duracao_minutos: number
   geometria: GeoJsonLineString
-  alternativas?: GeoJsonLineString[]
+  alternativas?: RotaAlternativa[]
   paradas: Parada[]
   atrativos?: Atrativo[]
   clima?: Clima

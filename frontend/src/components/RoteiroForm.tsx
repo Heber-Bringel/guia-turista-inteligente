@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
-import { ArrowRight, CarFront, LocateFixed, MapPin, Route } from 'lucide-react'
-import { UFS, type EstiloViagem, type PlanejamentoInput, type PreferenciaRota, type TipoVeiculo } from '../types/roteiro'
+import { ArrowRight, CarFront, LocateFixed, MapPin, Route, Sparkles } from 'lucide-react'
+import { findNearestCity, suggestDestinationsBeyondRadius } from '../services/geolocation'
+import { UFS, type Coordenada, type EstiloViagem, type PlanejamentoInput, type PreferenciaRota, type TipoVeiculo } from '../types/roteiro'
 
 interface RoteiroFormProps {
   loading: boolean
@@ -8,6 +9,7 @@ interface RoteiroFormProps {
   onSubmit: (values: PlanejamentoInput) => void
   onLocate: () => void
   locating: boolean
+  currentPosition?: Coordenada | null
 }
 
 const INITIAL_VALUES: PlanejamentoInput = {
@@ -20,8 +22,11 @@ const INITIAL_VALUES: PlanejamentoInput = {
   passageiros: 2,
 }
 
-export function RoteiroForm({ loading, disabled = false, onSubmit, onLocate, locating }: RoteiroFormProps) {
+export function RoteiroForm({ loading, disabled = false, onSubmit, onLocate, locating, currentPosition }: RoteiroFormProps) {
   const [values, setValues] = useState<PlanejamentoInput>(INITIAL_VALUES)
+
+  const nearestOrigin = currentPosition ? findNearestCity(currentPosition) : null
+  const destinationSuggestions = currentPosition ? suggestDestinationsBeyondRadius(currentPosition, 400, 4) : []
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -51,9 +56,20 @@ export function RoteiroForm({ loading, disabled = false, onSubmit, onLocate, loc
                   <option value="">UF</option>{UFS.map((uf) => <option key={uf}>{uf}</option>)}
                 </select>
               </div>
-              <button className="locate-button" type="button" onClick={onLocate} disabled={locating || loading}>
-                <LocateFixed size={15} /> {locating ? 'Localizando…' : 'Usar minha localização'}
-              </button>
+              <div className="locate-actions">
+                <button className="locate-button" type="button" onClick={onLocate} disabled={locating || loading}>
+                  <LocateFixed size={15} /> {locating ? 'Localizando…' : 'Usar minha localização'}
+                </button>
+                {nearestOrigin && (values.origem.cidade !== nearestOrigin.cidade || values.origem.uf !== nearestOrigin.uf) && (
+                  <button
+                    className="locate-chip"
+                    type="button"
+                    onClick={() => setValues((curr) => ({ ...curr, origem: { cidade: nearestOrigin.cidade, uf: nearestOrigin.uf } }))}
+                  >
+                    Preencher {nearestOrigin.cidade}/{nearestOrigin.uf}
+                  </button>
+                )}
+              </div>
             </div>
             <ArrowRight className="route-arrow" aria-hidden="true" size={20} />
             <div className="field-group route-field">
@@ -64,6 +80,21 @@ export function RoteiroForm({ loading, disabled = false, onSubmit, onLocate, loc
                   <option value="">UF</option>{UFS.map((uf) => <option key={uf}>{uf}</option>)}
                 </select>
               </div>
+              {destinationSuggestions.length > 0 && (
+                <div className="haversine-suggestions" aria-label="Sugestões de destinos acima de 400 km">
+                  <span><Sparkles size={12} /> Sugestões (&gt;400 km):</span>
+                  {destinationSuggestions.map((dest) => (
+                    <button
+                      key={`${dest.cidade}-${dest.uf}`}
+                      type="button"
+                      className="locate-chip"
+                      onClick={() => setValues((curr) => ({ ...curr, destino: { cidade: dest.cidade, uf: dest.uf } }))}
+                    >
+                      {dest.cidade}/{dest.uf} ({dest.distancia_km} km)
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 

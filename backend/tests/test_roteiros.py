@@ -223,9 +223,31 @@ def test_planejar_roteiro_completo_com_servicos_mockados(
         ),
         patch.object(
             roteiros_module,
-            "gerar_guia_ia_async",
+            "calcular_altimetria_async",
             new_callable=AsyncMock,
-            return_value=("Guia cultural completo de Brasília.", [{"id": "atr_1", "nome": "Congresso", "visitado": False}]),
+            return_value={
+                "ganho_m": 850.0,
+                "perda_m": 220.0,
+                "altitude_maxima_m": 1172.0,
+                "altitude_minima_m": 80.0,
+                "desnivel_liquido_m": 630.0,
+                "impacto_consumo_percentual": 10.0,
+                "fonte": "Open-Elevation",
+                "perfil": [
+                    {"distancia_km": 0.0, "altitude_m": 80.0, "latitude": -5.089, "longitude": -42.801},
+                    {"distancia_km": 1300.0, "altitude_m": 710.0, "latitude": -15.779, "longitude": -47.929},
+                ],
+            },
+        ),
+        patch.object(
+            roteiros_module,
+            "gerar_guia_ia_com_diagnostico_async",
+            new_callable=AsyncMock,
+            return_value=(
+                "Guia cultural completo de Brasília.",
+                [{"id": "atr_1", "nome": "Congresso", "visitado": False}],
+                {"status": "sucesso", "fallback_utilizado": False, "modelo": "gemini-2.5-flash", "motivo": None},
+            ),
         ),
     ):
         response = client.post("/api/v1/roteiros/planejar", json=payload_valido, headers=auth_headers)
@@ -239,6 +261,15 @@ def test_planejar_roteiro_completo_com_servicos_mockados(
         assert dados["destino"]["cidade"] == "Brasília"
         assert len(dados["paradas"]) >= 1  # Gerou parada por exceder autonomia
         assert any(d["provedor"] == "gemini" and d["status"] == "disponivel" for d in dados["diagnosticos"])
+
+        # Sem confirmar postos (rede bloqueada), as paradas ficam estimadas e o diagnóstico é "parcial"
+        assert all(p["estimada"] for p in dados["paradas"])
+        assert any(d["provedor"] == "postos" and d["status"] == "parcial" for d in dados["diagnosticos"])
+
+        # O relevo chega à resposta, inclusive o perfil, e aumenta o consumo nos custos
+        assert dados["altimetria"]["ganho_m"] == 850.0
+        assert len(dados["altimetria"]["perfil"]) == 2
+        assert dados["custos"]["combustivel_ou_energia"] == pytest.approx(1674.6 / 12.0 * 5.89 * 1.10, abs=0.01)
 
 
 def test_planejar_roteiro_degradacao_controlada_quando_provedor_falha(
@@ -271,7 +302,7 @@ def test_planejar_roteiro_degradacao_controlada_quando_provedor_falha(
         ),
         patch.object(
             roteiros_module,
-            "gerar_guia_ia_async",
+            "gerar_guia_ia_com_diagnostico_async",
             new_callable=AsyncMock,
             side_effect=Exception("Cota 429 excedida no Gemini"),
         ),

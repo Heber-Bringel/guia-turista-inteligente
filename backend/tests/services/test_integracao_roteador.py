@@ -20,7 +20,7 @@ SERVICOS_DO_ROTEADOR = [
     "calcular_rota_osrm_async",
     "calcular_altimetria_async",
     "calcular_custos_async",
-    "gerar_guia_ia_async",
+    "gerar_guia_ia_com_diagnostico_async",
     "gerar_guia_ia_stream_async",
     "gerar_gpx_async",
 ]
@@ -42,6 +42,7 @@ PAYLOAD = {
 }
 
 GEOMETRIA = [[-42.801, -5.089], [-44.5, -9.0], [-46.0, -12.5], [-47.929, -15.779]]
+ALTERNATIVA = [[-42.801, -5.089], [-43.9, -10.0], [-47.929, -15.779]]
 
 
 def _provedores_simulados(request: httpx.Request) -> httpx.Response:
@@ -58,7 +59,11 @@ def _provedores_simulados(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"current": atual})
     if host == "router.project-osrm.org":
         rota = {"distance": 1_674_600.0, "duration": 77_880.0, "geometry": {"type": "LineString", "coordinates": GEOMETRIA}}
-        return httpx.Response(200, json={"code": "Ok", "routes": [rota], "waypoints": [{"distance": 5.0}, {"distance": 9.0}]})
+        curta = {"distance": 1_650_000.0, "duration": 80_000.0, "geometry": {"type": "LineString", "coordinates": ALTERNATIVA}}
+        return httpx.Response(200, json={"code": "Ok", "routes": [rota, curta], "waypoints": [{"distance": 5.0}, {"distance": 9.0}]})
+    if host == "overpass-api.de":
+        posto = {"lat": -9.0, "lon": -44.0, "tags": {"name": "Posto Teste"}}
+        return httpx.Response(200, json={"elements": [posto]})
     if host == "api.open-elevation.com":
         locais = json.loads(request.content)["locations"]
         # Sobe de 100 m a cada amostra: o ganho total é conhecido
@@ -111,18 +116,34 @@ def test_planejar_completo_com_os_servicos_reais(api_offline: TestClient) -> Non
     assert roteiro["altimetria"]["ganho_m"] > 0
     assert roteiro["altimetria"]["perda_m"] == 0.0
 
-    # Custos: 1674,6 km / 12 km/L * R$ 5,89 e rateio entre 2 passageiros
-    assert roteiro["custos"]["combustivel_ou_energia"] == pytest.approx(821.95, abs=0.01)
+    assert roteiro["altimetria"]["fonte"] == "Open-Elevation"
+    assert len(roteiro["altimetria"]["perfil"]) > 2
+    impacto = roteiro["altimetria"]["impacto_consumo_percentual"]
+    assert impacto > 0
+
+    # Custos: 1674,6 km / 12 km/L * R$ 5,89, acrescidos do impacto do relevo, e rateio entre 2 passageiros
+    assert roteiro["custos"]["combustivel_ou_energia"] == pytest.approx(1674.6 / 12 * 5.89 * (1 + impacto / 100), abs=0.01)
     assert roteiro["custos"]["por_passageiro"] == pytest.approx(roteiro["custos"]["total"] / 2, abs=0.01)
     assert roteiro["custos"]["emissoes_kg_co2"] > 0
 
     # Paradas (autonomia de 500 km exige abastecimento) e guia de contingência (sem chave Gemini)
-    assert len(roteiro["paradas"]) >= 1
+    assert len(roteiro["paradas"]) == 4  # alcance útil de 410 km em 1674,6 km
+    assert all(p["estimada"] is False and p["nome"].startswith("Posto Teste") for p in roteiro["paradas"])
+
+    # Alternativas: geometria compatível com o mapa mais nome e métricas da sugestão
+    assert len(roteiro["alternativas"]) == 1
+    alternativa = roteiro["alternativas"][0]
+    assert alternativa["type"] == "LineString" and alternativa["coordinates"] == ALTERNATIVA
+    assert alternativa["nome"] == "Sugestão 02 (Rodovias Federais / Mais Econômica)"
+    assert (alternativa["distancia_km"], alternativa["duracao_minutos"]) == (1650.0, 1333.3)
+
     assert roteiro["guia"].startswith("🏛️ IDENTIDADE: Brasília")
     assert "Dia 2" in roteiro["guia"]
 
     diagnosticos = {d["provedor"]: d["status"] for d in roteiro["diagnosticos"]}
-    assert {diagnosticos[p] for p in ("geocoding", "clima", "rota", "altimetria")} == {"disponivel"}
+    assert {diagnosticos[p] for p in ("geocoding", "clima", "rota", "altimetria", "postos")} == {"disponivel"}
+    # Sem chave Gemini o guia é a contingência, e o diagnóstico deixa isso claro
+    assert diagnosticos["gemini"] == "parcial"
 
 
 def test_planejar_degrada_quando_clima_e_altimetria_falham(api_offline: TestClient) -> None:
@@ -212,3 +233,5 @@ def test_gpx_exportado_contem_a_rota_planejada(api_offline: TestClient) -> None:
     nomes = [w.findtext("g:name", namespaces=ns) for w in raiz.findall("g:wpt", ns)]
     assert nomes[0] == "Origem: Teresina" and nomes[-1] == "Destino: Brasília"
     assert len(nomes) == 2 + len(roteiro["paradas"])
+    # O perfil de altitude foi salvo com o roteiro, então todos os pontos da trilha têm <ele>
+    assert all(p.find("g:ele", ns) is not None for p in raiz.findall(".//g:trkpt", ns))

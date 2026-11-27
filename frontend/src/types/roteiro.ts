@@ -9,6 +9,8 @@ export type Uf = (typeof UFS)[number]
 export type EstiloViagem = 'economico' | 'cultural' | 'gastronomico' | 'aventura' | 'familia' | 'romantico'
 export type PreferenciaRota = 'rapida' | 'economica' | 'cenica'
 export type TipoVeiculo = 'gasolina' | 'etanol' | 'diesel' | 'eletrico' | 'hibrido'
+export type RitmoViagem = 'tranquilo' | 'moderado' | 'intenso'
+export type CanalDespacho = 'email' | 'whatsapp'
 
 export interface LocalidadeInput {
   cidade: string
@@ -58,6 +60,17 @@ export interface Parada extends Coordenada {
   distancia_origem_km?: number
   estimada?: boolean
   visitado?: boolean
+  cnpj?: string
+  razao_social?: string
+  avaliacao?: number
+  tempo_autorizacao_anp?: string | number
+  combustiveis?: string[]
+  ranking_score?: number
+  rodovia?: string
+  municipio?: string
+  uf?: string
+  bandeira?: string
+  endereco?: string
 }
 
 export interface Atrativo {
@@ -94,6 +107,7 @@ export interface Custos {
 export interface Roteiro {
   id: string
   criado_em: string
+  idioma?: string
   origem: Localidade
   destino: Localidade
   distancia_km: number
@@ -107,6 +121,59 @@ export interface Roteiro {
   custos?: Custos
   diagnosticos?: ProviderDiagnostic[]
   guia?: string
+}
+
+export interface MensagemChatItem {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ChatMensagem extends MensagemChatItem {
+  id: string
+  criado_em: string
+  patrimonios_preservados?: string[]
+  sugestoes_proximos_passos?: string[]
+}
+
+export interface ChatRoteiroRequest {
+  destino: string
+  dias_estadia?: number
+  estilo_viagem?: EstiloViagem
+  ritmo_viagem: RitmoViagem
+  acompanhantes: string
+  preferencias_gastronomia: string
+  mensagem: string
+  historico: MensagemChatItem[]
+  clima_info?: Clima
+  roteiro_id?: string
+}
+
+export interface ChatRoteiroResponse {
+  resposta: string
+  idioma: string
+  destino: string
+  roteiro_personalizado?: string
+  patrimonios_preservados?: string[]
+  sugestoes_proximos_passos?: string[]
+  fallback_utilizado?: boolean
+}
+
+export interface DespacharRoteiroRequest {
+  roteiro_id?: string
+  canal: CanalDespacho
+  destinatario: string
+  nome_viajante?: string
+  resumo_guia?: string
+  roteiro?: Roteiro
+}
+
+export interface DespacharRoteiroResponse {
+  status: string
+  protocolo?: string
+  canal: CanalDespacho
+  destinatario?: string
+  idioma?: string
+  mensagem: string
 }
 
 export interface PlanningProgress {

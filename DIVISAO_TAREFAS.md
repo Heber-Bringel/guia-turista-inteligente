@@ -283,19 +283,6 @@ O arquivo `static/data/viagens.json` manipulado por Mikaelle e preenchido pela o
 
 ---
 
-## 📊 Resumo dos Critérios de Avaliação
-
-| Integrante | Eixos Avaliados | Nota Máxima |
-|-----------|-----------------|-------------|
-| **Héber Bringel** | Eixo 3 (HTTPX & Resiliência), Eixo 4 (JWT & Geocoding), Eixo 5 (JSON endpoint & 404/405) | 10,0 |
-| **Douglas Leone** | Eixo 1 (Tipagem & Qualidade), Eixo 6 (IA Gemini, Prompt & Fallback) | 10,0 |
-| **Mikaelle Barroso** | Eixo 2 (HTTP, PRG & Idempotência), Eixo 5 (JSON thread-safe, payload & `.get()`) | 10,0 |
-
-> [!IMPORTANT]
-> A avaliação é **individual e comparativa**: o professor rankeia o desempenho de cada integrante em relação aos pares de mesma função nos outros grupos. A nota final do grupo é a média aritmética simples das 3 notas individuais.
-
----
-
 ## 🚀 Instruções de Setup (Todos os Integrantes)
 
 ```bash
@@ -336,9 +323,5 @@ Get-Content .env | ForEach-Object {
 python app.py
 # Acesse: http://localhost:8001
 ```
-
-> ⚠️ Nunca commite o arquivo `.env` — ele está no `.gitignore`!
-
----
 
 *Documento gerado em 22/09/2026 • Atividade 2 — Guia do Turista Inteligente*

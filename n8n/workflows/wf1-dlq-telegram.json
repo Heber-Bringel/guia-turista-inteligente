@@ -1,0 +1,91 @@
+{
+  "name": "WF 1 — DLQ Telegram (turismo-dlq)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "turismo-dlq",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "b1a7c8d0-1111-4a00-8000-000000000001",
+      "name": "Webhook DLQ (turismo-dlq)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "turismo-dlq"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Formata o payload de incidente da DLQ do FastAPI em alerta Markdown com UUID e Stack Trace\nconst body = $input.first().json.body || $input.first().json;\n\nconst traceId = body.trace_id || 'sem-uuid';\nconst rota = body.rota || 'N/D';\nconst servico = body.servico || 'N/D';\nconst tipoErro = body.tipo_erro || 'ErroAplicacao';\nconst erro = body.erro || 'Falha interna não especificada';\nconst timestamp = body.timestamp || new Date().toISOString();\nconst stackBruto = String(body.stack_trace || 'Stack trace não disponível').slice(0, 1200);\n\nconst markdown = [\n  '🚨 *ALERTA DE INCIDENTE — DLQ (Guia do Turista Inteligente V3)*',\n  '',\n  `🆔 *UUID de Rastreio:* \\`${traceId}\\``,\n  `🛣️ *Rota:* \\`${rota}\\``,\n  `⚙️ *Serviço:* \\`${servico}\\` (*${tipoErro}*)`,\n  `🕒 *Horário (UTC):* \\`${timestamp}\\``,\n  `⚠️ *Mensagem:* ${erro}`,\n  '',\n  '📋 *Stack Trace:*',\n  '```python',\n  stackBruto,\n  '```'\n].join('\\n');\n\nreturn [\n  {\n    json: {\n      trace_id: traceId,\n      rota,\n      servico,\n      markdown_alerta: markdown,\n      chat_id: $env.TELEGRAM_SUPPORT_CHAT_ID || ''\n    }\n  }\n];"
+      },
+      "id": "b1a7c8d0-1111-4a00-8000-000000000002",
+      "name": "Formatar Alerta Markdown (Code)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id || $env.TELEGRAM_SUPPORT_CHAT_ID }}",
+        "text": "={{ $json.markdown_alerta }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "b1a7c8d0-1111-4a00-8000-000000000003",
+      "name": "Enviar Alerta Telegram (DLQ)",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        800,
+        300
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-equipe",
+          "name": "Telegram Bot Equipe Suporte"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook DLQ (turismo-dlq)": {
+      "main": [
+        [
+          {
+            "node": "Formatar Alerta Markdown (Code)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatar Alerta Markdown (Code)": {
+      "main": [
+        [
+          {
+            "node": "Enviar Alerta Telegram (DLQ)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "AT07-V3-DLQ"
+    }
+  ]
+}

@@ -1,16 +1,15 @@
 """Testes exaustivos do ciclo de roteiros: validação 422, concorrência 409, isolamento e SSE."""
 
-import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import AsyncMock, patch
+
 import pytest
-from fastapi.testclient import TestClient
 from app.routers import roteiros as roteiros_module
 from app.services.storage_service import (
-    deletar_viagem_usuario_sync,
     listar_viagens_usuario_sync,
     salvar_nova_viagem_sync,
 )
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture
@@ -119,7 +118,6 @@ def test_isolamento_total_de_historico_entre_usuarios(
 ) -> None:
     """Usuário A não pode visualizar, alterar ou excluir roteiros do Usuário B."""
     user_a = auth_headers["X-User-Id"]
-    user_b = auth_headers_outro_usuario["X-User-Id"]
 
     # Salva uma viagem no storage diretamente para o Usuário A
     viagem_a = {

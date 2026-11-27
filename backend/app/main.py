@@ -1,10 +1,12 @@
-"""Ponto de entrada do microsserviço FastAPI - Guia do Turista Inteligente."""
+"""Ponto de entrada do microsserviço FastAPI (V3 EDA com n8n) - Guia do Turista Inteligente."""
 
 import os
 import time
+import traceback
 import uuid
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+
 import httpx
 from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,13 +17,15 @@ from app.core.logging_config import logger, set_correlation_id, setup_logging
 from app.routers.auth import router as auth_router
 from app.routers.roteiros import router as roteiros_router
 from app.routers.telemetria import router as telemetria_router
+from app.services.n8n_service import despachar_evento_dlq, montar_payload_dlq
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Gerencia o ciclo de vida da aplicação: cria pool de HTTP compartilhado e encerra no shutdown."""
+    """Gerencia o ciclo de vida da aplicação: registra timestamp de boot, cria pool HTTP e encerra no shutdown."""
     setup_logging()
-    logger.info("Iniciando %s v%s...", settings.APP_NAME, settings.APP_VERSION)
+    app.state.started_at = time.time()
+    logger.info("Iniciando %s v%s (EDA com n8n)...", settings.APP_NAME, settings.APP_VERSION)
 
     # Criação do cliente HTTP assíncrono compartilhado com pool de conexões configurado
     limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
@@ -50,9 +54,9 @@ app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     description=(
-        "Microsserviço backend assíncrono para planejamento de viagens turísticas, "
-        "telemetria rodoviária (OSRM), previsão do tempo (Open-Meteo), perfil altimétrico, "
-        "cálculo de autonomia/custos e streaming do guia com Google Gemini."
+        "Microsserviço backend assíncrono em Arquitetura Orientada a Eventos (EDA) com n8n para "
+        "planejamento de viagens turísticas, postos regulados ANP, chat multilíngue Gemini, "
+        "despacho multicanal (E-mail/WhatsApp), Dead Letter Queue (DLQ) e ChatOps Telegram."
     ),
     lifespan=lifespan,
     docs_url="/docs",
@@ -81,10 +85,38 @@ async def correlation_and_process_time_middleware(request: Request, call_next) -
     response = await call_next(request)
     duracao_ms = (time.perf_counter() - inicio) * 1000
 
-    # Injeta cabeçalhos padronizados para telemetria no frontend
     response.headers["X-Request-ID"] = request_id
     response.headers["X-Process-Time"] = f"{duracao_ms:.2f}"
     return response
+
+
+@app.exception_handler(Exception)
+async def global_dlq_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Captura falhas não tratadas sem expor stack trace ao cliente e despacha para a DLQ do n8n."""
+    trace_id = str(uuid.uuid4())
+    stack_str = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    payload_dlq = montar_payload_dlq(
+        rota=str(request.url.path),
+        servico="global_exception_handler",
+        erro=exc,
+        stack_trace=stack_str,
+        trace_id=trace_id,
+    )
+    logger.error(
+        "[BackgroundTasks][DLQ] Exceção capturada pelo handler global (trace_id=%s): %s",
+        trace_id,
+        exc,
+    )
+    client = getattr(request.app.state, "http_client", None)
+    if isinstance(client, httpx.AsyncClient) and not client.is_closed:
+        await despachar_evento_dlq(client, payload_dlq)
+
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={
+            "detail": "Serviço temporariamente indisponível. Nossa equipe técnica já foi notificada.",
+        },
+    )
 
 
 # =============================================================================
@@ -134,7 +166,7 @@ app.include_router(auth_router, prefix="/api/v1")
 app.include_router(roteiros_router, prefix="/api/v1")
 app.include_router(telemetria_router, prefix="/api/v1")
 
-# Exposição direta de /metrics na raiz para conformidade com raspadores do Prometheus
+# Exposição direta na raiz para Prometheus (/metrics) e atalhos ChatOps (/status, /uptime, /telemetria, /testardlq)
 app.include_router(telemetria_router)
 
 if __name__ == "__main__":
@@ -146,4 +178,3 @@ if __name__ == "__main__":
         port=settings.PORT,
         reload=settings.DEBUG,
     )
-

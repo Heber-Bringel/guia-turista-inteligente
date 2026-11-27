@@ -1,5 +1,6 @@
-"""Testes de observabilidade: health checks, readiness probe, Prometheus e telemetria."""
+"""Testes de observabilidade e segurança operacional: probes, Prometheus e X-Support-Key em /telemetria."""
 
+from app.core.config import settings
 from fastapi.testclient import TestClient
 
 
@@ -53,14 +54,25 @@ def test_middleware_injeta_correlation_id_e_process_time(client: TestClient) -> 
     assert "X-Request-ID" in response.headers
     assert "X-Process-Time" in response.headers
 
-    # Garante que X-Process-Time é numérico legível pelo frontend
     tempo_str = response.headers["X-Process-Time"]
     assert float(tempo_str) >= 0.0
 
 
-def test_telemetria_json_operacional(client: TestClient) -> None:
-    """Verifica endpoint consolidado de telemetria operacional com estado dos Circuit Breakers."""
-    response = client.get("/api/v1/telemetria")
+def test_telemetria_exige_x_support_key_e_retorna_dados_quando_autenticado(client: TestClient) -> None:
+    """Garante que /api/v1/telemetria rejeita acesso público sem X-Support-Key e responde 200 com a chave."""
+    # Sem cabeçalho X-Support-Key -> 401
+    res_sem_chave = client.get("/api/v1/telemetria")
+    assert res_sem_chave.status_code == 401
+
+    # Com cabeçalho X-Support-Key inválido -> 403
+    res_chave_errada = client.get("/api/v1/telemetria", headers={"X-Support-Key": "chave-invalida"})
+    assert res_chave_errada.status_code == 403
+
+    # Com cabeçalho X-Support-Key válido -> 200
+    response = client.get(
+        "/api/v1/telemetria",
+        headers={"X-Support-Key": settings.SUPPORT_API_KEY},
+    )
     assert response.status_code == 200
     dados = response.json()
 
@@ -70,4 +82,3 @@ def test_telemetria_json_operacional(client: TestClient) -> None:
     assert "geocoding" in dados["circuit_breakers"]
     assert "clima" in dados["circuit_breakers"]
     assert "gemini" in dados["circuit_breakers"]
-

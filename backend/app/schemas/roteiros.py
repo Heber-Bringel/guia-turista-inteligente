@@ -1,6 +1,7 @@
-"""Esquemas Pydantic v2 estritos para planejamento, geolocalização, telemetria e roteiros."""
+"""Esquemas Pydantic v2 estritos para planejamento, geolocalização, postos ANP, chat IA, despacho multicanal e suporte."""
 
 from typing import Annotated, Any, Literal
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 UFS_VALIDAS = {
@@ -13,12 +14,14 @@ ProviderStatus = Literal["disponivel", "parcial", "indisponivel"]
 EstiloViagem = Literal["cultural", "gastronomico", "ecoturismo", "familia", "romantico", "economico", "aventura"]
 PreferenciaRota = Literal["rapida", "economica", "cenica"]
 TipoVeiculo = Literal["gasolina", "etanol", "diesel", "eletrico", "hibrido", "combustivel"]
+CanalDespacho = Literal["email", "whatsapp"]
+RitmoViagem = Literal["tranquilo", "moderado", "intenso"]
 
 
 def validar_cidade(v: str) -> str:
     """Valida e sanitiza o nome da cidade: remove espaços, não pode ser vazia e limite de 100 caracteres."""
     if not isinstance(v, str):
-        raise ValueError("Cidade deve ser uma sequência de texto.")
+        raise ValueError("Cidade deve ser uma sequência de texto.")  # noqa: TRY004
     limpa = v.strip()
     if not limpa:
         raise ValueError("Cidade não pode ser vazia ou conter apenas espaços.")
@@ -30,7 +33,7 @@ def validar_cidade(v: str) -> str:
 def validar_uf(v: str) -> str:
     """Valida e padroniza a UF: deve ser uma das 27 siglas oficiais brasileiras em maiúsculas."""
     if not isinstance(v, str):
-        raise ValueError("UF deve ser uma sequência de texto.")
+        raise ValueError("UF deve ser uma sequência de texto.")  # noqa: TRY004
     uf = v.strip().upper()
     if uf not in UFS_VALIDAS:
         raise ValueError(
@@ -48,7 +51,7 @@ class ProviderDiagnostic(BaseModel):
             "example": {
                 "provedor": "clima",
                 "status": "disponivel",
-                "mensagem": "Open-Meteo respondeu em 120ms",
+                "mensagem": "Serviço meteorológico operacional",
             }
         },
     )
@@ -87,7 +90,7 @@ class RotaAlternativa(GeoJsonGeometry):
 
 
 class ParadaItem(BaseModel):
-    """Ponto de parada programada ao longo da rota."""
+    """Ponto de parada programada ao longo da rota com dados regulatórios da ANP (V3)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -98,6 +101,16 @@ class ParadaItem(BaseModel):
     distancia_origem_km: float | None = None
     estimada: bool = True
     visitado: bool = False
+    # Atributos regulatórios ANP (V3)
+    cnpj: str | None = None
+    razao_social: str | None = None
+    avaliacao: float | None = None
+    tempo_autorizacao_anp: str | int | None = None
+    combustiveis: list[str] = Field(default_factory=list)
+    ranking_score: float | None = None
+    rodovia: str | None = None
+    municipio: str | None = None
+    uf: str | None = None
 
 
 class AtrativoItem(BaseModel):
@@ -171,8 +184,8 @@ class RoteiroRequest(BaseModel):
             "example": {
                 "origem_cidade": "Teresina",
                 "origem_uf": "PI",
-                "destino_cidade": "Brasília",
-                "destino_uf": "DF",
+                "destino_cidade": "Parnaíba",
+                "destino_uf": "PI",
                 "dias_estadia": 3,
                 "estilo_viagem": "cultural",
                 "preferencia_rota": "rapida",
@@ -292,6 +305,112 @@ class GuiaStreamRequest(BaseModel):
     gastronomia: list[str] = Field(default_factory=list)
 
 
+class MensagemChatItem(BaseModel):
+    """Mensagem individual do diálogo multi-turno com o Gemini."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["user", "assistant"] = "user"
+    content: str = Field(..., min_length=1, max_length=2000)
+
+
+class ChatRoteiroRequest(BaseModel):
+    """Payload para diálogo interativo e personalização de roteiro com Gemini (V3)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "destino": "Piripiri - PI",
+                "dias_estadia": 2,
+                "estilo_viagem": "ecoturismo",
+                "ritmo_viagem": "tranquilo",
+                "acompanhantes": "família com crianças",
+                "preferencias_gastronomia": "comida típica piauiense e doces caseiros",
+                "mensagem": "Quero incluir o Parque Nacional de Sete Cidades e o Açude Caldeirão no roteiro.",
+                "historico": [],
+            }
+        },
+    )
+
+    destino: str = Field(..., min_length=2, max_length=120, description="Cidade ou destino da viagem.")
+    dias_estadia: Annotated[int, Field(ge=1, le=10)] = 2
+    estilo_viagem: EstiloViagem = "cultural"
+    ritmo_viagem: str = Field(default="moderado", max_length=80, description="Ritmo: tranquilo, moderado ou intenso.")
+    acompanhantes: str = Field(default="casal", max_length=120, description="Perfil dos acompanhantes.")
+    preferencias_gastronomia: str = Field(
+        default="culinária típica regional",
+        max_length=200,
+        description="Preferências gastronômicas do viajante.",
+    )
+    mensagem: str = Field(..., min_length=1, max_length=1500, description="Mensagem atual enviada pelo viajante.")
+    historico: list[MensagemChatItem] = Field(default_factory=list, description="Histórico de turnos anteriores.")
+    clima_info: dict[str, Any] = Field(default_factory=dict)
+    roteiro_id: str | None = None
+
+
+class ChatRoteiroResponse(BaseModel):
+    """Resposta do diálogo interativo com Gemini, adaptada ao idioma de Accept-Language."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    resposta: str
+    idioma: str = "pt"
+    destino: str
+    roteiro_personalizado: str | None = None
+    patrimonios_preservados: list[str] = Field(default_factory=list)
+    sugestoes_proximos_passos: list[str] = Field(default_factory=list)
+    fallback_utilizado: bool = False
+
+
+class DespacharRoteiroRequest(BaseModel):
+    """Requisição de entrega multicanal exclusiva do roteiro por E-mail ou WhatsApp via n8n (V3)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "roteiro_id": "rot_7f8a9b1c",
+                "canal": "email",
+                "destinatario": "viajante@exemplo.com",
+                "nome_viajante": "Mikaelle Barroso",
+                "resumo_guia": "Roteiro personalizado para Sete Cidades e Delta do Parnaíba.",
+            }
+        },
+    )
+
+    roteiro_id: str | None = Field(default=None, description="ID do roteiro salvo no histórico do usuário.")
+    canal: CanalDespacho = Field(..., description="Canal de entrega: 'email' ou 'whatsapp'.")
+    destinatario: str = Field(..., min_length=5, max_length=180, description="E-mail ou telefone WhatsApp com DDI/DDD.")
+    nome_viajante: str | None = Field(default="Viajante", max_length=100)
+    resumo_guia: str | None = Field(default=None, max_length=8000)
+    roteiro: dict[str, Any] | None = Field(
+        default=None,
+        description="Dados do roteiro caso enviado diretamente pelo estado da SPA.",
+    )
+
+    @field_validator("destinatario")
+    @classmethod
+    def validar_destinatario(cls, v: str) -> str:
+        limpo = v.strip()
+        if not limpo:
+            raise ValueError("O destinatário não pode ser vazio.")
+        return limpo
+
+
+class DespacharRoteiroResponse(BaseModel):
+    """Confirmação de agendamento do despacho multicanal em BackgroundTasks."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: str = "agendado"
+    protocolo: str
+    canal: CanalDespacho
+    destinatario: str
+    idioma: str = "pt"
+    mensagem: str
+
+
 class MarcarVisitaRequest(BaseModel):
     """Requisição para alternar status de visita de um atrativo ou parada."""
 
@@ -326,7 +445,8 @@ class RoteiroResponse(BaseModel):
         json_schema_extra={
             "example": {
                 "id": "rot_7f8a9b1c",
-                "criado_em": "2026-10-29T10:30:00Z",
+                "criado_em": "2026-11-27T10:30:00Z",
+                "idioma": "pt",
                 "origem": {
                     "cidade": "Teresina",
                     "uf": "PI",
@@ -334,65 +454,74 @@ class RoteiroResponse(BaseModel):
                     "longitude": -42.801,
                 },
                 "destino": {
-                    "cidade": "Brasília",
-                    "uf": "DF",
-                    "latitude": -15.779,
-                    "longitude": -47.929,
+                    "cidade": "Parnaíba",
+                    "uf": "PI",
+                    "latitude": -2.905,
+                    "longitude": -41.776,
                 },
-                "distancia_km": 1674.6,
-                "duracao_minutos": 1298.0,
+                "distancia_km": 338.0,
+                "duracao_minutos": 285.0,
                 "geometria": {
                     "type": "LineString",
-                    "coordinates": [[-42.801, -5.089], [-47.929, -15.779]],
+                    "coordinates": [[-42.801, -5.089], [-41.778, -4.273], [-41.776, -2.905]],
                 },
                 "alternativas": [],
                 "paradas": [
                     {
-                        "id": "parada_1",
-                        "nome": "Parada Estratégica km 510",
-                        "latitude": -9.123,
-                        "longitude": -45.456,
-                        "distancia_origem_km": 510.0,
-                        "estimada": True,
+                        "id": "posto_anp_1",
+                        "nome": "Posto Piripiri BR-343 (km 160)",
+                        "latitude": -4.273,
+                        "longitude": -41.778,
+                        "distancia_origem_km": 160.0,
+                        "estimada": False,
                         "visitado": False,
+                        "cnpj": "07.456.789/0001-90",
+                        "razao_social": "Auto Posto Caldeirão da BR-343 Ltda",
+                        "avaliacao": 4.8,
+                        "tempo_autorizacao_anp": "14 anos",
+                        "combustiveis": ["Gasolina Comum", "Gasolina Aditivada", "Etanol", "Diesel S10"],
+                        "ranking_score": 9.4,
+                        "rodovia": "BR-343",
+                        "municipio": "Piripiri",
+                        "uf": "PI",
                     }
                 ],
                 "atrativos": [
                     {
                         "id": "atr_1",
-                        "nome": "Congresso Nacional",
-                        "categoria": "Histórico/Político",
-                        "descricao": "Arquitetura icônica de Oscar Niemeyer.",
+                        "nome": "Parque Nacional de Sete Cidades",
+                        "categoria": "Patrimônio Natural e Arqueológico",
+                        "descricao": "Formações rochosas milenares e inscrições rupestres.",
                         "visitado": False,
                     }
                 ],
                 "clima": {
-                    "temperatura_c": 28.5,
-                    "umidade_percentual": 35.0,
-                    "vento_kmh": 12.0,
+                    "temperatura_c": 31.0,
+                    "umidade_percentual": 55.0,
+                    "vento_kmh": 14.0,
                     "descricao": "Ensolarado",
                 },
                 "altimetria": {
-                    "ganho_m": 850.0,
-                    "perda_m": 220.0,
-                    "altitude_maxima_m": 1172.0,
-                    "impacto_consumo_percentual": 4.5,
+                    "ganho_m": 240.0,
+                    "perda_m": 310.0,
+                    "altitude_maxima_m": 180.0,
+                    "impacto_consumo_percentual": 2.0,
                 },
                 "custos": {
-                    "combustivel_ou_energia": 821.50,
+                    "combustivel_ou_energia": 169.20,
                     "pedagios": 0.0,
-                    "total": 821.50,
-                    "por_passageiro": 410.75,
+                    "total": 169.20,
+                    "por_passageiro": 84.60,
                     "moeda": "BRL",
-                    "emissoes_kg_co2": 312.4,
+                    "emissoes_kg_co2": 64.8,
                 },
                 "diagnosticos": [
-                    {"provedor": "geocoding", "status": "disponivel", "mensagem": "OK"},
-                    {"provedor": "clima", "status": "disponivel", "mensagem": "OK"},
-                    {"provedor": "rota", "status": "disponivel", "mensagem": "OK"},
-                    {"provedor": "altimetria", "status": "disponivel", "mensagem": "OK"},
-                    {"provedor": "postos", "status": "disponivel", "mensagem": "OK"},
-                    {"provedor": "gemini", "status": "disponivel", "mensagem": "OK"},
+                    {"provedor": "geocoding", "status": "disponivel", "mensagem": "Serviço operacional"},
+                    {"provedor": "clima", "status": "disponivel", "mensagem": "Serviço operacional"},
+                    {"provedor": "rota", "status": "disponivel", "mensagem": "Serviço operacional"},
+                    {"provedor": "altimetria", "status": "disponivel", "mensagem": "Serviço operacional"},
+                    {"provedor": "postos", "status": "disponivel", "mensagem": "Postos regulados ANP localizados"},
+                    {"provedor": "gemini", "status": "disponivel", "mensagem": "Guia personalizado disponível"},
                 ],
                 "guia": "Guia formatado com atrações culturais e gastronomia...",
             }
@@ -401,6 +530,7 @@ class RoteiroResponse(BaseModel):
 
     id: str
     criado_em: str
+    idioma: str = "pt"
     origem: Localidade
     destino: Localidade
     distancia_km: float
@@ -414,4 +544,3 @@ class RoteiroResponse(BaseModel):
     custos: CustosInfo | None = None
     diagnosticos: list[ProviderDiagnostic] = Field(default_factory=list)
     guia: str | None = None
-

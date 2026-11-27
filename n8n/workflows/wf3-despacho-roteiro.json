@@ -1,0 +1,302 @@
+{
+  "name": "WF3 - Despacho Multicanal de Roteiro (E-mail e WhatsApp)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "turismo-despachar-roteiro",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wf3-webhook-despacho",
+      "name": "Webhook Despacho Roteiro",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "webhookId": "turismo-despachar-roteiro"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst body = raw.body ?? raw;\n\nconst escapeHtml = (value) => String(value ?? '')\n  .replace(/&/g, '&amp;')\n  .replace(/</g, '&lt;')\n  .replace(/>/g, '&gt;')\n  .replace(/\"/g, '&quot;')\n  .replace(/'/g, '&#39;');\n\nconst canal = String(body.canal ?? '').trim().toLowerCase();\nconst destinatario = String(body.destinatario ?? '').trim();\nconst idioma = String(body.idioma ?? 'pt-BR').trim();\nconst protocolo = String(body.protocolo ?? `dsp_${Date.now()}`);\nconst nomeViajante = String(body.nome_viajante ?? 'Viajante').trim();\nconst roteiro = body.roteiro ?? {};\n\nconst origemObj = roteiro.origem ?? {};\nconst destinoObj = roteiro.destino ?? {};\nconst origem = typeof body.origem === 'string'\n  ? body.origem\n  : [origemObj.cidade, origemObj.uf].filter(Boolean).join(' - ') || 'Origem';\nconst destino = typeof body.destino === 'string'\n  ? body.destino\n  : [destinoObj.cidade, destinoObj.uf].filter(Boolean).join(' - ') || 'Destino';\n\nconst distanciaKm = Math.round(Number(body.distancia_km ?? roteiro.distancia_km ?? 0));\nconst duracaoMin = Math.round(Number(body.duracao_minutos ?? roteiro.duracao_minutos ?? 0));\nconst horas = Math.floor(duracaoMin / 60);\nconst minutos = duracaoMin % 60;\nconst duracaoTexto = `${horas}h ${minutos}min`;\n\nconst resumoGuia = String(body.resumo_guia ?? body.resumo_roteiro ?? roteiro.guia ?? '').trim();\nconst paradas = Array.isArray(body.paradas) ? body.paradas : (Array.isArray(roteiro.paradas) ? roteiro.paradas : []);\n\nconst subjectByLang = {\n  en: `Your Smart Tourist Guide Itinerary: ${origem} -> ${destino}`,\n  es: `Tu itinerario de viaje: ${origem} -> ${destino}`,\n  fr: `Votre itineraire de voyage : ${origem} -> ${destino}`,\n  zh: `您的专属行程：${origem} -> ${destino}`,\n  hi: `आपका यात्रा कार्यक्रम: ${origem} -> ${destino}`,\n  ar: `مسار رحلتك المخصص: ${origem} -> ${destino}`,\n  ru: `Ваш персональный маршрут: ${origem} -> ${destino}`,\n};\nconst langPrefix = idioma.split('-')[0].toLowerCase();\nconst emailSubject = subjectByLang[langPrefix] || `Seu roteiro Guia do Turista Inteligente: ${origem} -> ${destino}`;\n\nconst paradasHtml = paradas.length > 0\n  ? paradas.map((p) => {\n      const titulo = escapeHtml(p.razao_social || p.nome || 'Posto na rota');\n      const cnpj = p.cnpj ? ` | CNPJ: ${escapeHtml(p.cnpj)}` : '';\n      const combustiveis = Array.isArray(p.combustiveis) && p.combustiveis.length > 0\n        ? ` | ${escapeHtml(p.combustiveis.join(', '))}`\n        : '';\n      return `<li style=\"margin-bottom:6px;\"><strong>${titulo}</strong>${cnpj}${combustiveis}</li>`;\n    }).join('')\n  : '<li>Nenhuma parada obrigatoria registrada para a autonomia informada.</li>';\n\nconst emailHtml = `\n<!doctype html>\n<html lang=\"${escapeHtml(idioma)}\">\n  <body style=\"margin:0;padding:24px;background:#f4f7fa;font-family:Arial,Helvetica,sans-serif;color:#1b2a34;\">\n    <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:620px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #d9e3ec;\">\n      <tr>\n        <td style=\"background:#0877ad;color:#ffffff;padding:22px 24px;\">\n          <p style=\"margin:0;font-size:12px;letter-spacing:0.06em;text-transform:uppercase;opacity:0.9;\">Guia do Turista Inteligente · V3</p>\n          <h1 style=\"margin:6px 0 0;font-size:22px;\">${escapeHtml(origem)} &rarr; ${escapeHtml(destino)}</h1>\n        </td>\n      </tr>\n      <tr>\n        <td style=\"padding:22px 24px;\">\n          <p style=\"margin:0 0 14px;\">Ola, <strong>${escapeHtml(nomeViajante)}</strong>! Seu roteiro personalizado esta pronto.</p>\n          <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"background:#eef5fa;border-radius:8px;padding:12px 14px;margin-bottom:18px;\">\n            <tr>\n              <td><strong>Distancia:</strong> ${distanciaKm} km</td>\n              <td><strong>Duracao:</strong> ${escapeHtml(duracaoTexto)}</td>\n              <td><strong>Protocolo:</strong> ${escapeHtml(protocolo)}</td>\n            </tr>\n          </table>\n          <h2 style=\"font-size:16px;margin:0 0 8px;color:#0877ad;\">Paradas e Postos ANP</h2>\n          <ul style=\"padding-left:18px;margin:0 0 18px;line-height:1.5;\">${paradasHtml}</ul>\n          <h2 style=\"font-size:16px;margin:0 0 8px;color:#0877ad;\">Guia Personalizado</h2>\n          <div style=\"white-space:pre-line;line-height:1.65;background:#f8fafc;padding:14px;border-radius:8px;border:1px solid #e5edf3;\">${escapeHtml(resumoGuia || 'Roteiro pronto para consulta no aplicativo.')}</div>\n        </td>\n      </tr>\n      <tr>\n        <td style=\"padding:14px 24px;background:#f8fafc;font-size:12px;color:#5b6d7a;border-top:1px solid #e5edf3;\">\n          Despachado automaticamente via n8n (Arquitetura EDA) · Idioma: ${escapeHtml(idioma)}\n        </td>\n      </tr>\n    </table>\n  </body>\n</html>\n`.trim();\n\nconst paradasWhatsApp = paradas.length > 0\n  ? paradas.map((p, idx) => `${idx + 1}. ${p.razao_social || p.nome}${p.cnpj ? ` (CNPJ ${p.cnpj})` : ''}`).join('\\n')\n  : 'Sem paradas obrigatorias previstas.';\n\nconst whatsappText = [\n  `*Guia do Turista Inteligente — V3*`,\n  `Ola, ${nomeViajante}! Segue seu roteiro personalizado:`,\n  ``,\n  `*Rota:* ${origem} -> ${destino}`,\n  `*Distancia:* ${distanciaKm} km | *Duracao:* ${duracaoTexto}`,\n  `*Protocolo:* ${protocolo}`,\n  ``,\n  `*Postos ANP / Paradas:*`,\n  paradasWhatsApp,\n  ``,\n  `*Roteiro:*`,\n  resumoGuia || 'Confira os detalhes completos no planejador.',\n].join('\\n');\n\nconst destinatarioLimpo = canal === 'whatsapp'\n  ? destinatario.replace(/\\D/g, '')\n  : destinatario;\n\nreturn [{\n  json: {\n    canal,\n    protocolo,\n    idioma,\n    destinatario,\n    destinatario_limpo: destinatarioLimpo,\n    nome_viajante: nomeViajante,\n    origem,\n    destino,\n    email_subject: emailSubject,\n    email_html: emailHtml,\n    whatsapp_text: whatsappText,\n  },\n}];"
+      },
+      "id": "wf3-code-preparar",
+      "name": "Preparar Mensagem Multicanal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.canal }}",
+                    "rightValue": "email",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "email"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.canal }}",
+                    "rightValue": "whatsapp",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "whatsapp"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "wf3-switch-canal",
+      "name": "Roteador de Canal",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        700,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.resend.com/emails",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.RESEND_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ from: $env.EMAIL_FROM || 'Guia do Turista <onboarding@resend.dev>', to: [$json.destinatario_limpo], subject: $json.email_subject, html: $json.email_html }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "wf3-http-email-resend",
+      "name": "Enviar E-mail HTML (Resend)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.WHATSAPP_API_URL || 'http://localhost:8080') + '/message/sendText/' + ($env.WHATSAPP_INSTANCE || 'guia-turista') }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.WHATSAPP_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ number: $json.destinatario_limpo, text: $json.whatsapp_text }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "wf3-http-whatsapp-evolution",
+      "name": "Enviar WhatsApp (Evolution API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'enviado', canal: 'email', protocolo: $('Preparar Mensagem Multicanal').item.json.protocolo, mensagem: 'Roteiro HTML enviado por e-mail com sucesso.' }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "wf3-respond-email",
+      "name": "Responder Sucesso E-mail",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1220,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'enviado', canal: 'whatsapp', protocolo: $('Preparar Mensagem Multicanal').item.json.protocolo, mensagem: 'Roteiro enviado por WhatsApp com sucesso.' }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "wf3-respond-whatsapp",
+      "name": "Responder Sucesso WhatsApp",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1220,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'erro', mensagem: 'Canal de envio nao suportado. Utilize email ou whatsapp.' }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "wf3-respond-invalido",
+      "name": "Responder Canal Invalido",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        520
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Despacho Roteiro": {
+      "main": [
+        [
+          {
+            "node": "Preparar Mensagem Multicanal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Mensagem Multicanal": {
+      "main": [
+        [
+          {
+            "node": "Roteador de Canal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Roteador de Canal": {
+      "main": [
+        [
+          {
+            "node": "Enviar E-mail HTML (Resend)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enviar WhatsApp (Evolution API)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder Canal Invalido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar E-mail HTML (Resend)": {
+      "main": [
+        [
+          {
+            "node": "Responder Sucesso E-mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar WhatsApp (Evolution API)": {
+      "main": [
+        [
+          {
+            "node": "Responder Sucesso WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "wf3-despacho-roteiro-v3",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [
+    {
+      "name": "AT07"
+    },
+    {
+      "name": "V3-EDA"
+    }
+  ]
+}

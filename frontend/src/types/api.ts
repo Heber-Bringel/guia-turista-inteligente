@@ -1,3 +1,5 @@
+export type SupportedLanguage = 'pt-BR' | 'en' | 'es' | 'fr' | 'zh' | 'hi' | 'ar' | 'ru'
+
 export type ProviderName = 'geocoding' | 'clima' | 'rota' | 'altimetria' | 'postos' | 'gemini'
 
 export type ProviderStatus = 'disponivel' | 'parcial' | 'indisponivel'
@@ -44,15 +46,4 @@ export interface AuthResponse {
   usuario: SessionUser
   access_token?: string
   expires_in?: number
-}
-
-export interface RequestTelemetry {
-  processTimeMs?: number
-  totalTimeMs: number
-  requestId?: string
-}
-
-export interface ApiResult<T> {
-  data: T
-  telemetry: RequestTelemetry
 }

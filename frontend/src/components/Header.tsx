@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Compass, LogOut, MapPinned, Moon, RotateCcw, Sun, UserRound } from 'lucide-react'
-import type { SessionUser } from '../types/api'
+import { Compass, Globe, LogOut, MapPinned, Moon, RotateCcw, Sun, UserRound } from 'lucide-react'
+import { getTranslations } from '../i18n/language'
+import { LANGUAGE_OPTIONS } from '../i18n/translations'
+import type { SessionUser, SupportedLanguage } from '../types/api'
 
 interface HeaderProps {
   user: SessionUser | null
@@ -12,15 +14,30 @@ interface HeaderProps {
   onRestoreGoogle: () => void
   theme: 'light' | 'dark'
   onToggleTheme: () => void
+  language: SupportedLanguage
+  onChangeLanguage: (language: SupportedLanguage) => void
 }
 
 const GOOGLE_SCRIPT_ID = 'google-identity-services'
 
-export function Header({ user, authLoading, onVisitorLogin, onGoogleLogin, onLogout, savedGoogleUser, onRestoreGoogle, theme, onToggleTheme }: HeaderProps) {
+export function Header({
+  user,
+  authLoading,
+  onVisitorLogin,
+  onGoogleLogin,
+  onLogout,
+  savedGoogleUser,
+  onRestoreGoogle,
+  theme,
+  onToggleTheme,
+  language,
+  onChangeLanguage,
+}: HeaderProps) {
   const googleButtonRef = useRef<HTMLDivElement>(null)
   const googleLoginRef = useRef(onGoogleLogin)
   const [googleUnavailable, setGoogleUnavailable] = useState(false)
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined
+  const t = getTranslations(language)
 
   useEffect(() => {
     googleLoginRef.current = onGoogleLogin
@@ -64,37 +81,78 @@ export function Header({ user, authLoading, onVisitorLogin, onGoogleLogin, onLog
     return () => script.removeEventListener('load', render)
   }, [clientId, user])
 
+  const languagePicker = (
+    <label className="language-picker">
+      <Globe size={16} aria-hidden="true" />
+      <select
+        aria-label={t.languageSelectorLabel}
+        value={language}
+        onChange={(event) => onChangeLanguage(event.target.value as SupportedLanguage)}
+      >
+        {LANGUAGE_OPTIONS.map((option) => (
+          <option key={option.code} value={option.code}>
+            {option.nativeLabel}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+
   return (
     <header className="topbar">
-      <a className="brand" href="#main" aria-label="Guia do Turista Inteligente — ir para o conteúdo">
+      <a className="brand" href="#main" aria-label={`${t.brandTitle} ${t.brandSubtitle}`}>
         <span className="brand-mark" aria-hidden="true"><Compass size={22} /></span>
         <span>
-          <strong>Guia do Turista</strong>
-          <small>Inteligente</small>
+          <strong>{t.brandTitle}</strong>
+          <small>{t.brandSubtitle}</small>
         </span>
       </a>
 
       {user ? (
         <div className="user-menu">
+          {languagePicker}
           {user.foto ? <img src={user.foto} alt="" referrerPolicy="no-referrer" /> : <span className="avatar"><UserRound size={18} /></span>}
           <span className="user-copy">
             <strong>{user.nome}</strong>
-            <small>{user.modo === 'visitante' ? 'Sessão de visitante' : user.email}</small>
+            <small>{user.modo === 'visitante' ? t.visitorSession : user.email}</small>
           </span>
-          {user.modo === 'google' && <button className="button button-secondary restore-button" type="button" onClick={onVisitorLogin} disabled={authLoading}><UserRound size={16} /> Modo visitante</button>}
-          {user.modo === 'visitante' && savedGoogleUser && <button className="button button-secondary restore-button" type="button" onClick={onRestoreGoogle}><RotateCcw size={16} /> Voltar para {savedGoogleUser.nome.split(' ')[0]}</button>}
-          <button className="button button-quiet button-icon theme-button" type="button" onClick={onToggleTheme} aria-label={`Usar tema ${theme === 'light' ? 'escuro' : 'claro'}`}>{theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}</button>
-          <button className="button button-quiet button-icon" type="button" onClick={onLogout} aria-label="Sair da conta">
-            <LogOut size={18} /> <span>Sair</span>
+          {user.modo === 'google' && (
+            <button className="button button-secondary restore-button" type="button" onClick={onVisitorLogin} disabled={authLoading}>
+              <UserRound size={16} /> {t.visitorModeButton}
+            </button>
+          )}
+          {user.modo === 'visitante' && savedGoogleUser && (
+            <button className="button button-secondary restore-button" type="button" onClick={onRestoreGoogle}>
+              <RotateCcw size={16} /> {t.restoreGooglePrefix} {savedGoogleUser.nome.split(' ')[0]}
+            </button>
+          )}
+          <button
+            className="button button-quiet button-icon theme-button"
+            type="button"
+            onClick={onToggleTheme}
+            aria-label={theme === 'light' ? t.themeToDark : t.themeToLight}
+          >
+            {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
+          </button>
+          <button className="button button-quiet button-icon" type="button" onClick={onLogout} aria-label={t.logoutAria}>
+            <LogOut size={18} /> <span>{t.logout}</span>
           </button>
         </div>
       ) : (
         <div className="auth-actions" aria-busy={authLoading}>
-          <button className="button button-quiet button-icon theme-button" type="button" onClick={onToggleTheme} aria-label={`Usar tema ${theme === 'light' ? 'escuro' : 'claro'}`}>{theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}</button>
+          {languagePicker}
+          <button
+            className="button button-quiet button-icon theme-button"
+            type="button"
+            onClick={onToggleTheme}
+            aria-label={theme === 'light' ? t.themeToDark : t.themeToLight}
+          >
+            {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
+          </button>
           {clientId && !googleUnavailable && <div className="google-button" ref={googleButtonRef} aria-label="Entrar com Google" />}
           <button className="button button-secondary" type="button" onClick={onVisitorLogin} disabled={authLoading}>
             <MapPinned size={18} />
-            {authLoading ? 'Entrando…' : 'Continuar como visitante'}
+            {authLoading ? t.signingIn : t.continueVisitor}
           </button>
         </div>
       )}

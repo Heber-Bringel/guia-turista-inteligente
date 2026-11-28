@@ -1,0 +1,26 @@
+# n8n local para os workflows da V3 (AT07). Uso, a partir da raiz do repositório:
+#   docker compose -f n8n/docker-compose.yml up -d
+# Painel: http://localhost:5678 — importe os JSONs de n8n/workflows/ e ative os 4 workflows.
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: guia-turista-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    env_file:
+      - ../.env
+    environment:
+      - GENERIC_TIMEZONE=America/Fortaleza
+      - TZ=America/Fortaleza
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      - N8N_SECURE_COOKIE=false
+    extra_hosts:
+      # Permite ao n8n chamar o FastAPI que roda fora do container (FASTAPI_BASE_URL)
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./workflows:/workflows:ro
+
+volumes:
+  n8n_data:

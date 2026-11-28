@@ -1,10 +1,11 @@
 # 🇧🇷 Guia do Turista Inteligente
 
-> Atividade 2 — Automação Web e Python | Unidade I  
+> **Versão atual:** V3 — Sistema Viajante com n8n (AT07, Unidade III) — veja [V3 — Sistema Viajante com n8n](#-v3--sistema-viajante-com-n8n-at07)  
+> Histórico: Atividade 2 — Automação Web e Python | Unidade I (V1 em Flask, documentada mais abaixo)  
 > **Fork do grupo:** [Heber-Bringel/guia-turista-inteligente](https://github.com/Heber-Bringel/guia-turista-inteligente)  
 > **Repositório base do professor:** [maykolsampaio/guia-turista-inteligente](https://github.com/maykolsampaio/guia-turista-inteligente)
 
-Aplicação web desenvolvida com **Flask** e Python moderno para orquestração de APIs externas com autenticação via **Google Identity Services (OAuth JWT)**, gerando roteiros de viagem com dados meteorológicos, cálculo de percurso rodoviário e guia turístico com inteligência artificial (Google Gemini AI).
+Na V3, a aplicação roda com **FastAPI + React 19/TypeScript + n8n** (detalhes na seção V3). A V1 original foi desenvolvida com **Flask** e Python moderno para orquestração de APIs externas com autenticação via **Google Identity Services (OAuth JWT)**, gerando roteiros de viagem com dados meteorológicos, cálculo de percurso rodoviário e guia turístico com inteligência artificial (Google Gemini AI).
 
 ---
 
@@ -22,7 +23,119 @@ Aplicação web desenvolvida com **Flask** e Python moderno para orquestração 
 
 ---
 
-## 🚀 Como Executar Localmente
+## 🧭 V3 — Sistema Viajante com n8n (AT07)
+
+A V3 conecta o backend **FastAPI** e o frontend **React 19 + TypeScript** ao orquestrador **n8n** numa
+**Arquitetura Orientada a Eventos (EDA)**: o FastAPI responde ao usuário imediatamente e publica eventos
+(falhas, despacho do roteiro, clima) em `BackgroundTasks`; o n8n consome esses eventos e fala com Telegram,
+E-mail, WhatsApp, Open-Meteo e Gemini.
+
+> Divisão de tarefas da V3: [DIVISAO_TAREFAS_UNIDADE_3.md](./DIVISAO_TAREFAS_UNIDADE_3.md)
+
+### Arquitetura
+
+```mermaid
+flowchart LR
+    U[Viajante<br/>React 19 + Leaflet] -- "REST + Accept-Language" --> API[FastAPI<br/>/api/v1]
+    API --> SVC[Serviços de dados<br/>OSRM · Open-Meteo · Overpass + ANP · Gemini]
+    API -. "BackgroundTasks" .-> WF1[WF 1 · DLQ<br/>turismo-dlq]
+    API -. "BackgroundTasks" .-> WF3[WF 3 · Despacho<br/>turismo-despachar-roteiro]
+    API -. "BackgroundTasks" .-> WF4[WF 4 · Clima + IA<br/>turismo-clima]
+    WF1 --> TG[Telegram da equipe]
+    TG -- "/status /uptime /telemetria /testardlq" --> WF2[WF 2 · ChatOps]
+    WF2 -- "X-Support-Key" --> API
+    WF3 --> MAIL[E-mail HTML / WhatsApp]
+    WF4 --> OM[Open-Meteo] --> GM[Gemini]
+```
+
+| Workflow | Arquivo | Gatilho | O que faz | Responsável |
+|---|---|---|---|---|
+| WF 1 — DLQ | [`wf1-dlq-telegram.json`](./n8n/workflows/wf1-dlq-telegram.json) | Webhook `turismo-dlq` | Formata o incidente (UUID, rota, horário, stack trace) e alerta a equipe no Telegram | Mikaelle |
+| WF 2 — ChatOps | [`wf2-chatops-telegram.json`](./n8n/workflows/wf2-chatops-telegram.json) | Telegram Trigger | Valida o Chat ID e responde `/status`, `/uptime`, `/telemetria` e `/testardlq` consultando o FastAPI com `X-Support-Key` | Mikaelle |
+| WF 3 — Despacho | [`wf3-despacho-roteiro.json`](./n8n/workflows/wf3-despacho-roteiro.json) | Webhook `turismo-despachar-roteiro` | Envia o roteiro por E-mail HTML (Resend) ou WhatsApp (Evolution API) | Héber |
+| WF 4 — Clima + IA | [`wf4-clima-gemini.json`](./n8n/workflows/wf4-clima-gemini.json) | Webhook `turismo-clima` | Consulta a previsão na Open-Meteo, avalia chuva/temperatura (verde/amarelo/vermelho) e gera orientações com o Gemini | Douglas |
+
+### Destaques por integrante
+
+- **Héber — Frontend, i18n e multicanal:** pop-up dos postos ANP aberto só por clique no marcador, chat com a IA,
+  seletor de 8 idiomas (PT, EN, ES, FR, ZH, HI, AR com RTL, RU) que propaga `Accept-Language`, interface sem
+  métricas internas e entrega do roteiro por E-mail/WhatsApp no lugar do download GPX.
+- **Douglas — Dados ANP e IA multilíngue:** postos ao longo da rota ranqueados com dados regulatórios da ANP
+  (`cnpj`, `razao_social`, `avaliacao`, `tempo_autorizacao_anp`, `combustiveis`, `ranking_score`), incluindo o
+  caso **BR-343 em Piripiri - PI**; chat Gemini multi-turno que considera ritmo, acompanhantes e gastronomia e
+  responde no idioma pedido **sem traduzir nomes de patrimônios** (ex.: *Parque Nacional de Sete Cidades*).
+  Ranking: `score = 10 × (0,45 × avaliação/5 + 0,35 × min(anos ANP, 20)/20 + 0,20 × proximidade)`.
+  O catálogo ANP local é uma **amostra ilustrativa** (dados fictícios) e serve de fallback quando o OpenStreetMap falha.
+- **Mikaelle — Núcleo EDA, DLQ e segurança:** contratos Pydantic v2, DLQ com UUID de rastreio em
+  `BackgroundTasks` sem vazar stack trace ao usuário, endpoints de suporte protegidos por `X-Support-Key`
+  e uptime real desde o `lifespan`.
+
+### Endpoints principais (`/api/v1`)
+
+| Método | Rota | Descrição |
+|---|---|---|
+| `POST` | `/roteiros/planejar` | Planeja a viagem (geocoding, clima, rota, relevo, postos ANP, custos e guia IA) e publica o evento do WF 4 |
+| `POST` | `/roteiros/chat` | Um turno do diálogo com o Gemini no idioma de `Accept-Language` |
+| `POST` | `/roteiros/despachar` | Entrega o roteiro por `email` ou `whatsapp` via WF 3 |
+| `GET` | `/roteiros/minhas-viagens` | Histórico do usuário |
+| `GET` | `/suporte/status` · `/suporte/uptime` · `/suporte/telemetria` · `/suporte/testardlq` | Observabilidade restrita (exige `X-Support-Key`) |
+
+Documentação interativa: `http://localhost:8001/docs`.
+
+### Como executar a V3
+
+1. **Variáveis de ambiente** — copie `.env.example` para `.env` na raiz e preencha `GEMINI_API_KEY`,
+   `SUPPORT_API_KEY`, `TELEGRAM_SUPPORT_CHAT_ID` e as chaves de E-mail/WhatsApp. O token do bot do Telegram é
+   cadastrado como credencial **Telegram API** dentro do n8n.
+2. **Backend (FastAPI)**:
+   ```bash
+   cd backend
+   python -m venv ../.venv && ../.venv/Scripts/activate   # Linux/macOS: source ../.venv/bin/activate
+   pip install -r requirements.txt
+   uvicorn app.main:app --reload --port 8001
+   ```
+3. **Frontend (React + Vite)**:
+   ```bash
+   cd frontend
+   cp .env.example .env    # VITE_API_URL=http://localhost:8001/api/v1
+   npm install
+   npm run dev             # http://localhost:5173
+   ```
+4. **n8n**:
+   ```bash
+   docker compose -f n8n/docker-compose.yml up -d   # http://localhost:5678
+   ```
+   No painel do n8n, importe os 4 arquivos de [`n8n/workflows/`](./n8n/workflows/), associe a credencial do
+   Telegram aos WF 1 e WF 2 e ative os quatro workflows.
+
+### Testes e qualidade
+
+```bash
+# Backend: 100% offline (rede externa bloqueada no conftest)
+cd backend && python -m pytest -v
+
+# Frontend
+cd frontend && npm test && npm run lint && npm run typecheck && npm run build
+```
+
+### Evidências
+
+Os prints ficam em [`docs/evidencias/`](./docs/evidencias/) — o passo a passo de cada captura está em
+[`docs/evidencias/README.md`](./docs/evidencias/README.md).
+
+| # | Evidência | Arquivo |
+|---|---|---|
+| 01 | Workflows ativos no n8n (WF 1 a WF 4) | [`01-workflows-ativos-n8n.png`](./docs/evidencias/01-workflows-ativos-n8n.png) |
+| 02 | Alerta de incidente da DLQ no Telegram | [`02-alerta-dlq-telegram.png`](./docs/evidencias/02-alerta-dlq-telegram.png) |
+| 03 | Resposta de comando ChatOps no Telegram | [`03-chatops-telegram.png`](./docs/evidencias/03-chatops-telegram.png) |
+| 04 | Pop-up de posto ANP no mapa (BR-343, Piripiri) | [`04-popup-posto-anp-mapa.png`](./docs/evidencias/04-popup-posto-anp-mapa.png) |
+| 05 | Diálogo multilíngue no Chat Gemini | [`05-dialogo-multilingue-gemini.png`](./docs/evidencias/05-dialogo-multilingue-gemini.png) |
+| 06 | Roteiro entregue por E-mail ou WhatsApp | [`06-roteiro-entregue-multicanal.png`](./docs/evidencias/06-roteiro-entregue-multicanal.png) |
+| 07 | Logs do FastAPI com `BackgroundTasks` | [`07-logs-fastapi-backgroundtasks.png`](./docs/evidencias/07-logs-fastapi-backgroundtasks.png) |
+
+---
+
+## 🚀 Como Executar Localmente (V1 — Flask, histórico)
 
 ### 1. Clonar o repositório
 

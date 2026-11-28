@@ -1,9 +1,16 @@
 """Testes do serviço de clima: unidades numéricas, descrição WMO e falhas que levantam erro legível."""
 
+import json
+from pathlib import Path
+
 import httpx
 import pytest
 
-from app.services.clima_service import descrever_codigo_wmo, obter_clima_async
+from app.services.clima_service import (
+    avaliar_condicoes_climaticas,
+    descrever_codigo_wmo,
+    obter_clima_async,
+)
 from app.services.erros import ServicoIndisponivelError
 
 pytestmark = pytest.mark.anyio
@@ -85,3 +92,41 @@ async def test_dados_incompletos_levantam_erro(criar_client) -> None:
 )
 def test_descrever_codigo_wmo(codigo: int | None, texto: str) -> None:
     assert descrever_codigo_wmo(codigo) == texto
+
+
+# --------------------------------------------------------------------------- avaliação do Workflow 4
+
+
+
+@pytest.mark.parametrize(
+    ("tmax", "tmin", "mm", "prob", "nivel", "alertas"),
+    [
+        (29.0, 22.0, 0.0, 10, "verde", []),
+        (29.0, 22.0, 0.0, 40, "amarelo", ["chuva"]),
+        (29.0, 22.0, 2.0, 0, "amarelo", ["chuva"]),
+        (29.0, 22.0, 0.0, 70, "vermelho", ["chuva_forte"]),
+        (29.0, 22.0, 10.0, 0, "vermelho", ["chuva_forte"]),
+        (32.0, 22.0, 0.0, 0, "amarelo", ["calor"]),
+        (35.0, 24.0, 0.0, 0, "vermelho", ["calor_extremo"]),
+        (24.0, 12.0, 0.0, 0, "amarelo", ["frio"]),
+        (36.0, 23.0, 3.5, 55, "vermelho", ["chuva", "calor_extremo"]),
+        (None, None, None, None, "verde", []),
+    ],
+)
+def test_avaliacao_de_chuva_e_temperatura_do_wf4(tmax, tmin, mm, prob, nivel: str, alertas: list[str]) -> None:
+    assert avaliar_condicoes_climaticas(tmax, tmin, mm, prob) == {"nivel": nivel, "alertas": alertas}
+
+
+def test_limiares_do_backend_sao_os_mesmos_do_workflow_n8n() -> None:
+
+    from app.services import clima_service as c
+
+    wf4 = Path(__file__).resolve().parents[3] / "n8n" / "workflows" / "wf4-clima-gemini.json"
+    codigo = next(n for n in json.loads(wf4.read_text(encoding="utf-8"))["nodes"] if n["name"] == "Avaliar Chuva e Temperatura")
+    js = codigo["parameters"]["jsCode"]
+    esperado = (
+        f"chuvaForteProb: {c.LIMIAR_CHUVA_FORTE_PROB}, chuvaForteMm: {c.LIMIAR_CHUVA_FORTE_MM:g}, "
+        f"chuvaProb: {c.LIMIAR_CHUVA_PROB}, chuvaMm: {c.LIMIAR_CHUVA_MM:g}"
+    )
+    assert esperado in js
+    assert f"calorExtremo: {c.LIMIAR_CALOR_EXTREMO_C:g}, calor: {c.LIMIAR_CALOR_C:g}, frio: {c.LIMIAR_FRIO_C:g}" in js

@@ -1,0 +1,306 @@
+{
+  "name": "WF4 - Clima Open-Meteo e Orientacoes Gemini",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "turismo-clima",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wf4-webhook-clima",
+      "name": "Webhook Clima",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ],
+      "webhookId": "turismo-clima"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Entrada do WF4: { destino, latitude, longitude, idioma, dias }\nconst raw = $input.first().json;\nconst body = raw.body ?? raw;\nconst idiomasSuportados = ['pt', 'en', 'es', 'fr', 'zh', 'hi', 'ar', 'ru'];\n\nconst latitude = Number(body.latitude);\nconst longitude = Number(body.longitude);\nconst codigo = String(body.idioma ?? 'pt').trim().toLowerCase().split(/[-_;,\\s]/)[0];\nconst dias = Math.min(Math.max(parseInt(body.dias ?? body.dias_estadia ?? 3, 10) || 3, 1), 7);\n\nconst coordenadasValidas = Number.isFinite(latitude) && Number.isFinite(longitude)\n  && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180\n  && !(latitude === 0 && longitude === 0);\n\nreturn [{\n  json: {\n    destino: String(body.destino ?? 'Destino').trim().slice(0, 120),\n    latitude,\n    longitude,\n    idioma: idiomasSuportados.includes(codigo) ? codigo : 'pt',\n    dias,\n    coordenadas_validas: coordenadasValidas,\n  },\n}];"
+      },
+      "id": "wf4-code-normalizar",
+      "name": "Normalizar Entrada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "wf4-cond-coordenadas",
+              "leftValue": "={{ $json.coordenadas_validas }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "wf4-if-coordenadas",
+      "name": "Coordenadas Validas?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.open-meteo.com/v1/forecast",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "latitude",
+              "value": "={{ $json.latitude }}"
+            },
+            {
+              "name": "longitude",
+              "value": "={{ $json.longitude }}"
+            },
+            {
+              "name": "daily",
+              "value": "temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max"
+            },
+            {
+              "name": "forecast_days",
+              "value": "={{ $json.dias }}"
+            },
+            {
+              "name": "timezone",
+              "value": "auto"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "id": "wf4-http-open-meteo",
+      "name": "Consultar Open-Meteo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        200
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mesmos limiares de backend/app/services/clima_service.py (avaliar_condicoes_climaticas)\nconst LIMIAR = {\n  chuvaForteProb: 70, chuvaForteMm: 10, chuvaProb: 40, chuvaMm: 2,\n  calorExtremo: 35, calor: 32, frio: 12,\n};\nconst entrada = $('Normalizar Entrada').first().json;\nconst daily = $input.first().json.daily ?? {};\nconst datas = Array.isArray(daily.time) ? daily.time : [];\n\nfunction avaliarDia(tmax, tmin, mm, prob) {\n  const alertas = [];\n  let severo = false;\n  const p = Number(prob ?? 0);\n  const c = Number(mm ?? 0);\n  if (p >= LIMIAR.chuvaForteProb || c >= LIMIAR.chuvaForteMm) { alertas.push('chuva_forte'); severo = true; }\n  else if (p >= LIMIAR.chuvaProb || c >= LIMIAR.chuvaMm) { alertas.push('chuva'); }\n  if (tmax != null && tmax >= LIMIAR.calorExtremo) { alertas.push('calor_extremo'); severo = true; }\n  else if (tmax != null && tmax >= LIMIAR.calor) { alertas.push('calor'); }\n  if (tmin != null && tmin <= LIMIAR.frio) { alertas.push('frio'); }\n  return { nivel: severo ? 'vermelho' : (alertas.length ? 'amarelo' : 'verde'), alertas };\n}\n\nconst previsao = datas.map((data, i) => {\n  const tmax = daily.temperature_2m_max?.[i] ?? null;\n  const tmin = daily.temperature_2m_min?.[i] ?? null;\n  const mm = daily.precipitation_sum?.[i] ?? null;\n  const prob = daily.precipitation_probability_max?.[i] ?? null;\n  return { data, temperatura_max_c: tmax, temperatura_min_c: tmin, precipitacao_mm: mm, probabilidade_chuva: prob, ...avaliarDia(tmax, tmin, mm, prob) };\n});\n\nconst ordem = { verde: 0, amarelo: 1, vermelho: 2 };\nconst nivel = previsao.length\n  ? previsao.reduce((pior, d) => (ordem[d.nivel] > ordem[pior] ? d.nivel : pior), 'verde')\n  : 'indisponivel';\nconst alertas = [...new Set(previsao.flatMap((d) => d.alertas))];\n\nconst nomesIdioma = {\n  pt: 'português do Brasil', en: 'inglês', es: 'espanhol', fr: 'francês',\n  zh: 'mandarim (chinês simplificado)', hi: 'hindi', ar: 'árabe', ru: 'russo',\n};\nconst resumoDias = previsao.map((d) =>\n  `${d.data}: máx ${d.temperatura_max_c ?? '?'} °C, mín ${d.temperatura_min_c ?? '?'} °C, ` +\n  `chuva ${d.precipitacao_mm ?? 0} mm (${d.probabilidade_chuva ?? 0}%), nível ${d.nivel}`).join('\\n');\n\nconst prompt = [\n  `Você é um assistente de viagem. Destino: ${entrada.destino}.`,\n  `Previsão diária (Open-Meteo):\\n${resumoDias || 'sem dados de previsão'}`,\n  `Nível geral de alerta: ${nivel}. Alertas: ${alertas.join(', ') || 'nenhum'}.`,\n  'Escreva de 3 a 5 orientações práticas e curtas (vestuário, horários, hidratação, deslocamento na estrada,',\n  'plano B coberto em caso de chuva). Texto puro, uma orientação por linha começando com \"• \", sem Markdown.',\n  `IDIOMA: escreva tudo em ${nomesIdioma[entrada.idioma]}.`,\n  'Mantenha nomes próprios de patrimônios, cidades e rodovias exatamente como no original em português',\n  '(ex.: \"Parque Nacional de Sete Cidades\", \"Serra da Capivara\", \"Delta do Parnaíba\", \"BR-343\"), sem traduzir.',\n].join('\\n');\n\n// Orientações de contingência, usadas se o Gemini falhar\nconst contingencia = {\n  pt: { chuva_forte: 'Chuva forte provável: troque passeios ao ar livre por atrações cobertas e evite trilhas.', chuva: 'Possibilidade de chuva: leve capa ou guarda-chuva e tenha um plano B coberto.', calor_extremo: 'Calor extremo: evite o sol entre 10h e 16h, hidrate-se e use protetor solar.', calor: 'Dia quente: prefira passeios cedo ou ao fim da tarde e beba água com frequência.', frio: 'Noites frias: leve agasalho para o início da manhã e a noite.', ok: 'Tempo favorável: aproveite os passeios ao ar livre com protetor solar.' },\n  en: { chuva_forte: 'Heavy rain likely: swap outdoor visits for indoor attractions and avoid trails.', chuva: 'Chance of rain: bring a raincoat or umbrella and keep an indoor plan B.', calor_extremo: 'Extreme heat: avoid the sun from 10 am to 4 pm, stay hydrated and wear sunscreen.', calor: 'Hot day: go out early or late in the afternoon and drink water often.', frio: 'Cold nights: bring a jacket for early mornings and evenings.', ok: 'Good weather: enjoy outdoor visits and wear sunscreen.' },\n  es: { chuva_forte: 'Lluvia fuerte probable: cambie los paseos al aire libre por atracciones cubiertas y evite senderos.', chuva: 'Posibilidad de lluvia: lleve impermeable o paraguas y tenga un plan B cubierto.', calor_extremo: 'Calor extremo: evite el sol entre las 10 y las 16 h, hidrátese y use protector solar.', calor: 'Día caluroso: salga temprano o al final de la tarde y beba agua con frecuencia.', frio: 'Noches frías: lleve abrigo para la mañana temprano y la noche.', ok: 'Buen tiempo: disfrute de los paseos al aire libre con protector solar.' },\n};\nconst textosContingencia = contingencia[entrada.idioma] ?? contingencia.en;\nconst orientacoesContingencia = (alertas.length ? alertas : ['ok']).map((a) => `• ${textosContingencia[a]}`).join('\\n');\n\nreturn [{ json: { ...entrada, nivel, alertas, previsao, prompt, orientacoes_contingencia: orientacoesContingencia } }];"
+      },
+      "id": "wf4-code-avaliar",
+      "name": "Avaliar Chuva e Temperatura",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://generativelanguage.googleapis.com/v1beta/models/' + ($env.GEMINI_MODEL || 'gemini-2.5-flash') + ':generateContent' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-goog-api-key",
+              "value": "={{ $env.GEMINI_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ contents: [{ role: 'user', parts: [{ text: $json.prompt }] }], generationConfig: { temperature: 0.4, maxOutputTokens: 400, thinkingConfig: { thinkingBudget: 0 } } }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "wf4-http-gemini",
+      "name": "Gerar Orientacoes (Gemini)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        200
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const avaliacao = $('Avaliar Chuva e Temperatura').first().json;\nconst resposta = $input.first().json ?? {};\nconst texto = (resposta.candidates?.[0]?.content?.parts ?? [])\n  .map((p) => p.text ?? '').join('').replace(/[*#`_]/g, '').trim();\nconst usouGemini = texto.length > 0;\n\nreturn [{\n  json: {\n    destino: avaliacao.destino,\n    idioma: avaliacao.idioma,\n    nivel: avaliacao.nivel,\n    alertas: avaliacao.alertas,\n    previsao: avaliacao.previsao,\n    orientacoes: usouGemini ? texto : avaliacao.orientacoes_contingencia,\n    fonte_orientacoes: usouGemini ? 'gemini' : 'contingencia',\n    gerado_em: new Date().toISOString(),\n  },\n}];"
+      },
+      "id": "wf4-code-montar",
+      "name": "Montar Resposta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "wf4-respond-ok",
+      "name": "Responder Orientacoes",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1760,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'erro', mensagem: 'Informe latitude e longitude válidas do destino.' }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "wf4-respond-invalido",
+      "name": "Responder Coordenadas Invalidas",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Clima": {
+      "main": [
+        [
+          {
+            "node": "Normalizar Entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar Entrada": {
+      "main": [
+        [
+          {
+            "node": "Coordenadas Validas?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Coordenadas Validas?": {
+      "main": [
+        [
+          {
+            "node": "Consultar Open-Meteo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder Coordenadas Invalidas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consultar Open-Meteo": {
+      "main": [
+        [
+          {
+            "node": "Avaliar Chuva e Temperatura",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avaliar Chuva e Temperatura": {
+      "main": [
+        [
+          {
+            "node": "Gerar Orientacoes (Gemini)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gerar Orientacoes (Gemini)": {
+      "main": [
+        [
+          {
+            "node": "Montar Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar Resposta": {
+      "main": [
+        [
+          {
+            "node": "Responder Orientacoes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "wf4-clima-gemini-v3",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [
+    {
+      "name": "AT07"
+    },
+    {
+      "name": "V3-EDA"
+    }
+  ]
+}

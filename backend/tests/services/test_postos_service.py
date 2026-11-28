@@ -134,3 +134,58 @@ async def test_rota_curta_nao_consulta_o_overpass(criar_client) -> None:
 
     async with criar_client(handler) as client:
         assert await localizar_paradas_async(client, TRAJETO, 200.0, autonomia_km=500.0) == []
+
+
+# --------------------------------------------------------------------------- dados regulatórios ANP (V3)
+
+# Teresina -> Piripiri -> Parnaíba pela BR-343 (polilinha simplificada)
+TRAJETO_BR343 = [[-42.801, -5.089], [-41.7769, -4.2733], [-41.776, -2.905]]
+ATRIBUTOS_ANP = ("cnpj", "razao_social", "avaliacao", "tempo_autorizacao_anp", "combustiveis", "ranking_score")
+
+
+def _cenario_br343() -> tuple[float, float]:
+    """(distância total, autonomia) para que a primeira parada caia exatamente em Piripiri."""
+    from app.services.geo_utils import distancias_acumuladas_km
+    from app.services.postos_service import MARGEM_SEGURANCA
+
+    acumuladas = distancias_acumuladas_km(TRAJETO_BR343)
+    return acumuladas[-1], acumuladas[1] / (1 - MARGEM_SEGURANCA)
+
+
+@pytest.mark.anyio
+async def test_br343_piripiri_overpass_fora_do_ar_usa_o_catalogo_anp(criar_client) -> None:
+    distancia, autonomia = _cenario_br343()
+
+    async with criar_client(lambda _: httpx.Response(503)) as client:
+        paradas = await localizar_paradas_async(client, TRAJETO_BR343, distancia, autonomia_km=autonomia)
+
+    piripiri = paradas[0]
+    assert piripiri["estimada"] is False
+    assert piripiri["nome"].startswith("Posto Portal de Sete Cidades (km ")
+    assert piripiri["municipio"] == "Piripiri" and piripiri["rodovia"] == "BR-343"
+    assert all(piripiri.get(campo) not in (None, []) for campo in ATRIBUTOS_ANP)
+    assert 0 <= piripiri["ranking_score"] <= 10
+
+
+@pytest.mark.anyio
+async def test_br343_piripiri_escolhe_o_melhor_ranking_e_nao_o_mais_proximo(criar_client) -> None:
+    distancia, autonomia = _cenario_br343()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        # Um posto sem registro ANP exatamente sobre a posição projetada
+        return httpx.Response(200, json={"elements": [{"lat": -4.2733, "lon": -41.7769, "tags": {"name": "Posto Colado"}}]})
+
+    async with criar_client(handler) as client:
+        paradas = await localizar_paradas_async(client, TRAJETO_BR343, distancia, autonomia_km=autonomia)
+
+    assert paradas[0]["cnpj"] == "00.343.001/0001-10"
+
+
+@pytest.mark.anyio
+async def test_eletrico_nao_usa_o_catalogo_da_anp(criar_client) -> None:
+    distancia, autonomia = _cenario_br343()
+
+    async with criar_client(lambda _: httpx.Response(503)) as client:
+        paradas = await localizar_paradas_async(client, TRAJETO_BR343, distancia, autonomia, tipo_veiculo="eletrico")
+
+    assert all(p["estimada"] is True and "cnpj" not in p for p in paradas)

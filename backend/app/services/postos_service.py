@@ -1,4 +1,9 @@
-"""Paradas de abastecimento/recarga: projeção pela autonomia e confirmação opcional via OpenStreetMap (Overpass)."""
+"""Paradas de abastecimento/recarga: projeção pela autonomia, postos reais (Overpass) e ranqueamento regulatório ANP.
+
+Cada parada projetada pela autonomia é confirmada pelo posto de melhor `ranking_score` ao redor dela,
+cruzando o OpenStreetMap com o catálogo regulatório da ANP (`anp_service`). Se o Overpass falhar, o próprio
+catálogo ANP serve de fallback controlado; sem nenhum posto conhecido, a parada fica com a posição estimada.
+"""
 
 import asyncio
 from typing import Any
@@ -7,11 +12,8 @@ import httpx
 
 from app.core.config import settings
 from app.core.logging_config import logger
-from app.services.geo_utils import (
-    distancias_acumuladas_km,
-    haversine_km,
-    ponto_na_distancia,
-)
+from app.services.anp_service import CATALOGO_ANP, ranquear_postos
+from app.services.geo_utils import distancias_acumuladas_km, ponto_na_distancia
 
 URL_OVERPASS = "https://overpass-api.de/api/interpreter"
 
@@ -74,10 +76,10 @@ def projetar_paradas(
     return paradas
 
 
-async def _buscar_posto_proximo(
+async def _buscar_postos_osm(
     client: httpx.AsyncClient, lat: float, lon: float, tag_amenity: str
-) -> dict[str, Any] | None:
-    """Consulta o Overpass e devolve o posto mais próximo do ponto, ou None se não houver ou o provedor falhar."""
+) -> list[dict[str, Any]] | None:
+    """Consulta o Overpass ao redor do ponto; devolve os elementos com posição, ou None se o provedor falhar."""
     consulta = (
         f'[out:json][timeout:6];node["amenity"="{tag_amenity}"](around:{RAIO_BUSCA_M},{lat},{lon});out 10;'
     )
@@ -85,19 +87,41 @@ async def _buscar_posto_proximo(
         resposta = await client.post(
             URL_OVERPASS,
             data={"data": consulta},
-            headers={"User-Agent": "GuiaTuristaInteligente/2.0 (FastAPI)", "Accept": "application/json"},
+            headers={"User-Agent": "GuiaTuristaInteligente/3.0 (FastAPI)", "Accept": "application/json"},
             timeout=min(settings.TIMEOUT_ROTA, 2.5),
         )
         resposta.raise_for_status()
         elementos = resposta.json().get("elements") or []
-    except (httpx.HTTPError, ValueError) as exc:
+    except (httpx.HTTPError, ValueError, AttributeError) as exc:
         logger.warning("Overpass indisponível para (%s, %s): %s", lat, lon, type(exc).__name__)
         return None
+    return [e for e in elementos if isinstance(e, dict) and "lat" in e and "lon" in e]
 
-    candidatos = [e for e in elementos if "lat" in e and "lon" in e]
-    if not candidatos:
-        return None
-    return min(candidatos, key=lambda e: haversine_km(lat, lon, e["lat"], e["lon"]))
+
+# Atributos regulatórios copiados do posto escolhido para a parada (contrato do pop-up ANP no mapa)
+CAMPOS_REGULATORIOS = (
+    "cnpj",
+    "razao_social",
+    "avaliacao",
+    "tempo_autorizacao_anp",
+    "combustiveis",
+    "ranking_score",
+    "rodovia",
+    "municipio",
+    "uf",
+)
+
+
+def _aplicar_posto(parada: dict[str, Any], posto: dict[str, Any]) -> None:
+    """Confirma a parada no posto escolhido, copiando posição e atributos regulatórios ANP."""
+    parada["nome"] = f"{posto['nome']} (km {round(parada['distancia_origem_km'])})"
+    parada["latitude"] = round(float(posto["latitude"]), 5)
+    parada["longitude"] = round(float(posto["longitude"]), 5)
+    parada["id"] = parada["id"].replace("estimada", "posto")
+    parada["estimada"] = False
+    for campo in CAMPOS_REGULATORIOS:
+        if posto.get(campo) not in (None, [], ""):
+            parada[campo] = posto[campo]
 
 
 async def localizar_paradas_async(
@@ -107,27 +131,32 @@ async def localizar_paradas_async(
     autonomia_km: float,
     tipo_veiculo: str = "gasolina",
 ) -> list[dict[str, Any]]:
-    """Projeta as paradas e tenta confirmar cada uma com um posto real (em paralelo).
+    """Projeta as paradas e confirma cada uma no posto de melhor ranking regulatório ao redor (em paralelo).
 
-    Parada confirmada: `estimada=False`, com nome e coordenadas do posto (até `RAIO_BUSCA_M` da rota).
-    Sem resposta do Overpass, a parada permanece com a posição projetada e `estimada=True`.
+    Parada confirmada: `estimada=False`, com nome, coordenadas e dados ANP (CNPJ, razão social, avaliação,
+    tempo de autorização em anos, combustíveis e `ranking_score`) do posto escolhido, até `RAIO_BUSCA_M`
+    da posição projetada. O catálogo ANP só vale para combustíveis: eletropostos não são regulados pela ANP.
+    Sem posto no OSM nem no catálogo, a parada permanece com a posição projetada e `estimada=True`.
     """
     paradas = projetar_paradas(coordenadas, distancia_km, autonomia_km, tipo_veiculo)
     if not paradas:
         return []
 
     _, tag_amenity, nome_generico = _rotulos(tipo_veiculo)
+    catalogo = () if tipo_veiculo == "eletrico" else CATALOGO_ANP
     achados = await asyncio.gather(
-        *(_buscar_posto_proximo(client, p["latitude"], p["longitude"], tag_amenity) for p in paradas)
+        *(_buscar_postos_osm(client, p["latitude"], p["longitude"], tag_amenity) for p in paradas)
     )
 
-    for parada, posto in zip(paradas, achados):
-        if posto is None:
-            continue
-        nome = (posto.get("tags") or {}).get("name") or nome_generico
-        parada["nome"] = f"{nome} (km {round(parada['distancia_origem_km'])})"
-        parada["latitude"] = round(float(posto["lat"]), 5)
-        parada["longitude"] = round(float(posto["lon"]), 5)
-        parada["id"] = parada["id"].replace("estimada", "posto")
-        parada["estimada"] = False
+    for parada, elementos in zip(paradas, achados):
+        ranking = ranquear_postos(
+            parada["latitude"],
+            parada["longitude"],
+            RAIO_BUSCA_M / 1000,
+            elementos,
+            catalogo=catalogo,
+            nome_generico=nome_generico,
+        )
+        if ranking:
+            _aplicar_posto(parada, ranking[0])
     return paradas

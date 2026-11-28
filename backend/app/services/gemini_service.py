@@ -1,4 +1,9 @@
-"""Serviço de IA: guia turístico conciso via Google Gemini (resposta completa e streaming) com fallback."""
+"""Serviço de IA: guia turístico conciso e chat multi-turno via Google Gemini, multilíngue e com fallback.
+
+O idioma vem do cabeçalho `Accept-Language` (normalizado pelo roteador) e vale para o prompt, para o guia
+de contingência e para o chat. Em qualquer idioma, nomes próprios de patrimônios locais são preservados
+sem tradução literal (ver `app.services.idiomas`).
+"""
 
 import asyncio
 import os
@@ -13,6 +18,15 @@ from google.genai import types
 from app.core.catalogo import GUIAS_CURADOS
 from app.core.config import settings
 from app.core.logging_config import logger
+from app.services.idiomas import (
+    IDIOMA_PADRAO,
+    NOMES_IDIOMA,
+    identificar_patrimonios,
+    normalizar_codigo_idioma,
+    normalizar_texto,
+    preservar_patrimonios,
+    textos,
+)
 
 # Modelos tentados em ordem; GEMINI_MODEL (variável de ambiente), se definida, tem prioridade
 MODELOS_PADRAO = ("gemini-2.5-flash", "gemini-2.5-flash-lite")
@@ -104,11 +118,13 @@ def montar_prompt(
     atrativos: list[dict[str, Any]] | None = None,
     gastronomia: list[str] | None = None,
     incluir_atrativos: bool = False,
+    idioma: str = IDIOMA_PADRAO,
 ) -> str:
     """Monta o prompt do 'assistente de bordo' com os limites de concisão do enunciado.
 
     Para 1 dia o roteiro usa Manhã/Tarde/Noite; para mais dias, uma linha por dia numerado.
     Com `incluir_atrativos`, pede uma última linha 'ATRATIVOS: a; b; c' que o serviço extrai do texto.
+    Fora do português, acrescenta a instrução de idioma e a regra de preservação dos patrimônios locais.
     """
     perfil = PERFIS_VIAJANTE.get(estilo, "Cultural")
     clima = _descrever_clima(clima_info)
@@ -149,7 +165,22 @@ def montar_prompt(
             "sem despedida e sem nada além do formato acima."
         ),
     ]
+    codigo = normalizar_codigo_idioma(idioma)
+    if codigo != IDIOMA_PADRAO:
+        linhas.append(instrucao_idioma(codigo, identificar_patrimonios(destino, *nomes_atrativos)))
     return "\n".join(linhas)
+
+
+def instrucao_idioma(idioma: str, patrimonios: list[str]) -> str:
+    """Regra de idioma do prompt: responder no idioma pedido sem traduzir nomes próprios de patrimônios."""
+    codigo = normalizar_codigo_idioma(idioma)
+    exemplos = ", ".join(f'"{p}"' for p in (patrimonios or ["Parque Nacional de Sete Cidades", "BR-343"])[:6])
+    return (
+        f"IDIOMA: escreva TODA a resposta em {NOMES_IDIOMA[codigo]} (código '{codigo}'), inclusive os títulos. "
+        "NOMES PRÓPRIOS: mantenha nomes de patrimônios, parques, monumentos, cidades, rodovias e pratos típicos "
+        f"exatamente como no original em português, sem traduzir nem transliterar (ex.: {exemplos}). "
+        "Ex.: escreva 'Parque Nacional de Sete Cidades', nunca 'Seven Cities National Park'."
+    )
 
 
 def extrair_atrativos(texto: str) -> tuple[str, list[dict[str, Any]]]:
@@ -173,48 +204,77 @@ def _resumir(item: str, max_palavras: int) -> str:
     return " ".join(oracao.split()[:max_palavras]).rstrip(",")
 
 
-def _dica_clima(clima_info: dict[str, Any] | None) -> str | None:
-    """Dica de vestuário/horário a partir da temperatura, ou None se não houver dado."""
+def _dica_clima(clima_info: dict[str, Any] | None, idioma: str = IDIOMA_PADRAO) -> str | None:
+    """Dica de vestuário/horário a partir da temperatura, no idioma pedido, ou None se não houver dado."""
     if not clima_info or clima_info.get("temperatura_c") is None:
         return None
     temp = float(clima_info["temperatura_c"])
-    if temp >= 30:
-        return f"Com {round(temp)} °C, use roupa leve e protetor solar e passeie cedo ou ao fim da tarde."
-    if temp >= 22:
-        return f"Com {round(temp)} °C, roupa leve resolve; leve um agasalho fino para a noite."
-    return f"Com {round(temp)} °C, leve agasalho e deixe os passeios ao ar livre para o meio do dia."
+    chave = "dica_calor" if temp >= 30 else "dica_ameno" if temp >= 22 else "dica_frio"
+    return textos(idioma)[chave].format(t=round(temp))
 
 
-def gerar_guia_contingencia(destino: str, dias: int = 1, clima_info: dict[str, Any] | None = None) -> str:
-    """Guia determinístico no mesmo formato conciso, usado quando a IA está indisponível."""
+def _dados_curados(destino: str) -> dict[str, Any] | None:
+    chave = _chave_catalogo(destino)
+    return next((d for nome, d in GUIAS_CURADOS.items() if nome in chave or chave in nome), None)
+
+
+def _locais_contingencia(destino: str, idioma: str) -> list[str]:
+    """Locais do guia sem IA: catálogo curado, senão patrimônios conhecidos da cidade, senão genéricos."""
+    dados = _dados_curados(destino)
+    if dados:
+        return [_resumir(p, 6) for p in dados["pontos"]]
+    patrimonios = [p for p in identificar_patrimonios(destino) if not p.startswith("BR-")]
+    if patrimonios:
+        return patrimonios
+    return [local.format(cidade=_nome_cidade(destino)) for local in textos(idioma)["locais_genericos"]]
+
+
+def gerar_guia_contingencia(
+    destino: str,
+    dias: int = 1,
+    clima_info: dict[str, Any] | None = None,
+    idioma: str = IDIOMA_PADRAO,
+) -> str:
+    """Guia determinístico no mesmo formato conciso, usado quando a IA está indisponível.
+
+    Os textos de apoio seguem o idioma pedido; nomes de lugares e pratos ficam no original (patrimônios).
+    """
+    codigo = normalizar_codigo_idioma(idioma)
+    txt = textos(codigo)
     cidade = _nome_cidade(destino)
-    dados = next(
-        (d for chave, d in GUIAS_CURADOS.items() if chave in _chave_catalogo(destino) or _chave_catalogo(destino) in chave),
-        None,
-    )
+    dados = _dados_curados(destino)
+    locais = _locais_contingencia(destino, codigo)
 
     if dados:
-        locais = [_resumir(p, 6) for p in dados["pontos"]]
         pratos = [_resumir(c, 5) for c in dados["culinaria"][:3]]
-        onde = f"Prove {', '.join(pratos[:-1])} e {pratos[-1]}."
-        dica = _dica_clima(clima_info) or f"{_resumir(dados['dica'], 22)}."
+        onde = txt["prove"].format(pratos=", ".join(pratos)) if codigo != IDIOMA_PADRAO else (
+            f"Prove {', '.join(pratos[:-1])} e {pratos[-1]}."
+        )
+        dica_padrao = f"{_resumir(dados['dica'], 22)}." if codigo == IDIOMA_PADRAO else txt["dica_generica"]
     else:
-        locais = [f"o centro histórico de {cidade}", "os parques e mirantes da região", "o mercado e a feira locais"]
-        onde = "Prove a culinária regional em restaurantes de comida caseira e feiras da cidade."
-        dica = _dica_clima(clima_info) or "Passeie ao ar livre nas primeiras horas da manhã, com temperaturas mais amenas."
+        onde = txt["gastronomia_generica"]
+        dica_padrao = txt["dica_generica"]
+    dica = _dica_clima(clima_info, codigo) or dica_padrao
 
-    if dias == 1:
-        roteiro = [f"• Manhã: Visite {locais[0]}.", f"• Tarde: Conheça {locais[1 % len(locais)]}.", f"• Noite: Passeie por {locais[2 % len(locais)]}."]
+    manha, tarde, noite = txt["turnos"]
+    if codigo == IDIOMA_PADRAO:
+        if dias == 1:
+            roteiro = [f"• Manhã: Visite {locais[0]}.", f"• Tarde: Conheça {locais[1 % len(locais)]}.", f"• Noite: Passeie por {locais[2 % len(locais)]}."]
+        else:
+            roteiro = [f"• Dia {n}: Explore {locais[(n - 1) % len(locais)]}." for n in range(1, dias + 1)]
+    elif dias == 1:
+        roteiro = [f"• {turno}: {locais[i % len(locais)]}." for i, turno in enumerate((manha, tarde, noite))]
     else:
-        roteiro = [f"• Dia {n}: Explore {locais[(n - 1) % len(locais)]}." for n in range(1, dias + 1)]
+        roteiro = [f"• {txt['dia'].format(n=n)}: {locais[(n - 1) % len(locais)]}." for n in range(1, dias + 1)]
 
+    titulo_identidade, titulo_roteiro, titulo_gastronomia, titulo_dica = txt["titulos"]
     return "\n".join(
         [
-            f"{TITULO_IDENTIDADE}: {cidade}, destino de cultura, sabores e paisagens marcantes do Brasil.",
-            f"{TITULO_ROTEIRO}:",
+            f"{titulo_identidade}: {txt['identidade'].format(cidade=cidade)}",
+            f"{titulo_roteiro}:",
             *roteiro,
-            f"{TITULO_GASTRONOMIA}: {onde}",
-            f"{TITULO_DICA}: {dica}",
+            f"{titulo_gastronomia}: {onde}",
+            f"{titulo_dica}: {dica}",
         ]
     )
 
@@ -252,13 +312,20 @@ def _config_rapida(max_tokens: int = 400) -> types.GenerateContentConfig:
     )
 
 
-async def _gerar_texto(prompt: str) -> tuple[str, str]:
-    """Chama o Gemini (resposta completa), tentando os modelos em ordem. Retorna (texto, modelo)."""
+async def _gerar_texto(
+    prompt: str | list[dict[str, Any]], config: types.GenerateContentConfig | None = None
+) -> tuple[str, str]:
+    """Chama o Gemini (resposta completa), tentando os modelos em ordem. Retorna (texto, modelo).
+
+    `prompt` pode ser um texto único ou a lista de turnos (`role` + `parts`) de um diálogo.
+    """
     client = genai.Client(api_key=_chave_api())
     ultimo_erro: Exception | None = None
     for modelo in _modelos():
         try:
-            resposta = await client.aio.models.generate_content(model=modelo, contents=prompt, config=_config_rapida())
+            resposta = await client.aio.models.generate_content(
+                model=modelo, contents=prompt, config=config or _config_rapida()
+            )
             if resposta.text:
                 return resposta.text, modelo
         except Exception as exc:  # noqa: BLE001 - qualquer falha do SDK deve acionar o próximo modelo/fallback
@@ -272,20 +339,21 @@ async def gerar_guia_ia_com_diagnostico_async(
     dias: int,
     estilo: str,
     clima_info: dict[str, Any] | None = None,
+    idioma: str = IDIOMA_PADRAO,
 ) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
-    """Gera o guia completo e os atrativos, sem nunca levantar exceção.
+    """Gera o guia completo e os atrativos no idioma pedido, sem nunca levantar exceção.
 
     Em ausência de chave, timeout (`TIMEOUT_GEMINI`) ou qualquer falha do provedor, devolve o guia de
     contingência. O terceiro item informa `fallback_utilizado`, `modelo` e `motivo` para o diagnóstico.
     """
     if not _chave_api():
         return (
-            gerar_guia_contingencia(destino, dias, clima_info),
+            gerar_guia_contingencia(destino, dias, clima_info, idioma),
             _atrativos_do_catalogo(destino),
             {"status": "fallback", "fallback_utilizado": True, "modelo": None, "motivo": "Chave GEMINI_API_KEY não configurada"},
         )
 
-    prompt = montar_prompt(destino, dias, estilo, clima_info, incluir_atrativos=True)
+    prompt = montar_prompt(destino, dias, estilo, clima_info, incluir_atrativos=True, idioma=idioma)
     try:
         bruto, modelo = await asyncio.wait_for(_gerar_texto(prompt), timeout=settings.TIMEOUT_GEMINI)
     except asyncio.TimeoutError:
@@ -293,14 +361,14 @@ async def gerar_guia_ia_com_diagnostico_async(
     except Exception as exc:  # noqa: BLE001
         motivo = f"Falha na API Gemini: {type(exc).__name__}"
     else:
-        texto, atrativos = extrair_atrativos(limpar_formato_texto(bruto))
+        texto, atrativos = extrair_atrativos(preservar_patrimonios(limpar_formato_texto(bruto)))
         if texto:
             return texto, atrativos, {"status": "sucesso", "fallback_utilizado": False, "modelo": modelo, "motivo": None}
         motivo = "Gemini devolveu resposta vazia"
 
     logger.warning("Guia IA em contingência: %s", motivo)
     return (
-        gerar_guia_contingencia(destino, dias, clima_info),
+        gerar_guia_contingencia(destino, dias, clima_info, idioma),
         _atrativos_do_catalogo(destino),
         {"status": "fallback", "fallback_utilizado": True, "modelo": None, "motivo": motivo},
     )
@@ -328,9 +396,10 @@ async def gerar_guia_ia_stream_async(payload: dict[str, Any]) -> AsyncGenerator[
     destino = str(payload.get("destino") or "")
     dias = int(payload.get("dias_estadia") or 1)
     clima_info = payload.get("clima_info") or {}
+    idioma = normalizar_codigo_idioma(str(payload.get("idioma") or IDIOMA_PADRAO))
 
     def contingencia() -> list[str]:
-        return _fatiar_em_chunks(gerar_guia_contingencia(destino, dias, clima_info))
+        return _fatiar_em_chunks(gerar_guia_contingencia(destino, dias, clima_info, idioma))
 
     if not _chave_api():
         for chunk in contingencia():
@@ -344,6 +413,7 @@ async def gerar_guia_ia_stream_async(payload: dict[str, Any]) -> AsyncGenerator[
         clima_info,
         payload.get("atrativos"),
         payload.get("gastronomia"),
+        idioma=idioma,
     )
     client = genai.Client(api_key=_chave_api())
     emitiu = False
@@ -376,3 +446,214 @@ async def gerar_guia_ia_stream_async(payload: dict[str, Any]) -> AsyncGenerator[
     logger.warning("Streaming do guia em contingência (%s)", type(ultimo_erro).__name__ if ultimo_erro else "resposta vazia")
     for chunk in contingencia():
         yield chunk
+
+
+# --------------------------------------------------------------------------- chat multi-turno (V3)
+
+# Histórico máximo enviado ao Gemini (turnos mais recentes), para limitar custo e latência
+MAX_TURNOS_HISTORICO = 12
+MAX_SUGESTOES = 3
+
+# Ritmo de viagem -> quantidade de atividades por dia no roteiro
+ATIVIDADES_POR_RITMO: dict[str, int] = {
+    "tranquilo": 2,
+    "leve": 2,
+    "relaxado": 2,
+    "moderado": 3,
+    "equilibrado": 3,
+    "intenso": 4,
+    "acelerado": 4,
+}
+
+
+def atividades_por_dia(ritmo: str) -> int:
+    """Atividades diárias para o ritmo informado (moderado = 3 quando o ritmo não é reconhecido)."""
+    normalizado = normalizar_texto(ritmo)
+    return next((n for chave, n in ATIVIDADES_POR_RITMO.items() if chave in normalizado), 3)
+
+
+def montar_instrucoes_chat(
+    destino: str,
+    dias: int,
+    estilo: str,
+    ritmo_viagem: str,
+    acompanhantes: str,
+    preferencias_gastronomia: str,
+    idioma: str = IDIOMA_PADRAO,
+    clima_info: dict[str, Any] | None = None,
+    patrimonios: list[str] | None = None,
+) -> str:
+    """Instrução de sistema do diálogo: contexto da viagem, formato do roteiro, idioma e patrimônios."""
+    perfil = PERFIS_VIAJANTE.get(estilo, "Cultural")
+    clima = _descrever_clima(clima_info)
+    patrimonios = patrimonios if patrimonios is not None else identificar_patrimonios(destino)
+    linhas = [
+        (
+            "Você é um guia de viagem brasileiro conversando com um viajante para construir, turno a turno, "
+            "um roteiro personalizado. Considere todo o histórico: quando o viajante pedir um ajuste, devolva o "
+            "roteiro completo já ajustado, não apenas a mudança."
+        ),
+        f"Destino: {destino}. Duração: {dias} dia(s). Perfil: {perfil}.",
+        f"Ritmo de viagem: {ritmo_viagem} (no máximo {atividades_por_dia(ritmo_viagem)} atividades por dia, com pausas).",
+        f"Acompanhantes: {acompanhantes} (adapte horários, deslocamentos e segurança a eles).",
+        f"Preferências gastronômicas: {preferencias_gastronomia} (indique pratos e onde prová-los).",
+    ]
+    if clima:
+        linhas.append(f"Clima atual no destino: {clima}.")
+    if patrimonios:
+        linhas.append(f"Patrimônios locais relevantes: {', '.join(patrimonios)}.")
+    linhas += [
+        "",
+        "FORMATO (texto puro, sem Markdown, sem saudação nem despedida):",
+        "1ª linha: resumo do roteiro em 1 frase.",
+        "Depois, uma linha por dia começando com '• ' e o rótulo do dia no idioma da resposta.",
+        "Uma linha começando com '🍲' sobre a gastronomia e uma linha começando com '💡' com uma dica prática.",
+        (
+            f"Última linha, exatamente: SUGESTOES: pergunta 1 | pergunta 2 | pergunta 3 ({MAX_SUGESTOES} perguntas "
+            "curtas que o viajante poderia fazer a seguir, no idioma da resposta; a palavra SUGESTOES fica sem tradução)."
+        ),
+        "",
+        instrucao_idioma(idioma, patrimonios),
+    ]
+    return "\n".join(linhas)
+
+
+def historico_para_conteudo(historico: list[dict[str, Any]] | None, mensagem: str) -> list[dict[str, Any]]:
+    """Converte o histórico do chat (`role` user/assistant + `content`) nos turnos do Gemini (user/model)."""
+    turnos: list[dict[str, Any]] = []
+    for item in (historico or [])[-MAX_TURNOS_HISTORICO:]:
+        texto = str(item.get("content") or "").strip()
+        if not texto:
+            continue
+        papel = "model" if item.get("role") == "assistant" else "user"
+        turnos.append({"role": papel, "parts": [{"text": texto}]})
+    turnos.append({"role": "user", "parts": [{"text": mensagem.strip()}]})
+    return turnos
+
+
+def extrair_sugestoes(texto: str) -> tuple[str, list[str]]:
+    """Separa a linha 'SUGESTOES: a | b | c' da resposta do chat."""
+    sugestoes: list[str] = []
+    restante: list[str] = []
+    for linha in texto.splitlines():
+        achado = re.match(r"^\W*SUGEST(?:OES|ÕES)\s*[:：]\s*(.+)$", linha.strip(), flags=re.IGNORECASE)
+        if achado:
+            sugestoes.extend(s.strip(" .•-") for s in re.split(r"\s*[|｜]\s*", achado.group(1)) if s.strip(" .•-"))
+        else:
+            restante.append(linha)
+    return "\n".join(restante).strip(), sugestoes[:MAX_SUGESTOES]
+
+
+def gerar_resposta_chat_contingencia(
+    destino: str,
+    dias: int,
+    ritmo_viagem: str,
+    acompanhantes: str,
+    preferencias_gastronomia: str,
+    mensagem: str,
+    idioma: str = IDIOMA_PADRAO,
+    clima_info: dict[str, Any] | None = None,
+    patrimonios: list[str] | None = None,
+) -> tuple[str, list[str]]:
+    """Roteiro determinístico do chat no idioma pedido (texto, sugestões), usado sem IA disponível.
+
+    Distribui os patrimônios locais (e os pontos do catálogo curado) pelos dias conforme o ritmo, sempre
+    com os nomes próprios no original.
+    """
+    codigo = normalizar_codigo_idioma(idioma)
+    txt = textos(codigo)
+    patrimonios = patrimonios if patrimonios is not None else identificar_patrimonios(destino, mensagem)
+    genericos = [local.format(cidade=_nome_cidade(destino)) for local in txt["locais_genericos"]]
+    locais = list(
+        dict.fromkeys(
+            [*(p for p in patrimonios if not p.startswith("BR-")), *_locais_contingencia(destino, codigo), *genericos]
+        )
+    )
+    por_dia = atividades_por_dia(ritmo_viagem)
+
+    linhas = [txt["chat_intro"].format(destino=destino, dias=dias, ritmo=ritmo_viagem, acompanhantes=acompanhantes)]
+    for n in range(dias):
+        do_dia = [locais[(n * por_dia + i) % len(locais)] for i in range(min(por_dia, len(locais)))]
+        linhas.append(f"• {txt['dia'].format(n=n + 1)}: {' → '.join(do_dia)}")
+    linhas.append(f"🍲 {txt['chat_gastronomia'].format(gastronomia=preferencias_gastronomia)}")
+    dica = _dica_clima(clima_info, codigo) or txt["dica_generica"]
+    pedido = preservar_patrimonios(" ".join(mensagem.split()))[:90]
+    linhas.append(f"💡 {dica} {txt['chat_ajuste'].format(pedido=pedido)}" if pedido else f"💡 {dica}")
+    return "\n".join(linhas), list(txt["chat_sugestoes"])
+
+
+def _config_chat(instrucoes: str) -> types.GenerateContentConfig:
+    return types.GenerateContentConfig(
+        system_instruction=instrucoes,
+        thinking_config=types.ThinkingConfig(thinking_budget=0),
+        temperature=0.7,
+        max_output_tokens=900,
+    )
+
+
+async def conversar_roteiro_ia_async(
+    destino: str,
+    dias: int,
+    estilo: str,
+    ritmo_viagem: str,
+    acompanhantes: str,
+    preferencias_gastronomia: str,
+    mensagem: str,
+    historico: list[dict[str, Any]] | None = None,
+    clima_info: dict[str, Any] | None = None,
+    idioma: str = IDIOMA_PADRAO,
+) -> dict[str, Any]:
+    """Processa um turno do diálogo de construção do roteiro, sem nunca levantar exceção.
+
+    Chamado por `POST /api/v1/roteiros/chat`. Devolve `resposta` (texto exibido no chat),
+    `roteiro_personalizado` (o mesmo texto, pronto para o despacho por E-mail/WhatsApp), `idioma`,
+    `patrimonios_preservados`, `sugestoes_proximos_passos`, `fallback_utilizado`, `modelo` e `motivo`.
+    Sem chave, em timeout ou falha do Gemini, responde com o roteiro determinístico no mesmo idioma.
+    """
+    codigo = normalizar_codigo_idioma(idioma)
+    textos_conversa = [mensagem, *(str(h.get("content") or "") for h in (historico or []))]
+    patrimonios = identificar_patrimonios(destino, *textos_conversa)
+
+    def resultado(
+        texto: str, sugestoes: list[str], fallback: bool, modelo: str | None, motivo: str | None
+    ) -> dict[str, Any]:
+        return {
+            "resposta": texto,
+            "roteiro_personalizado": texto,
+            "idioma": codigo,
+            "patrimonios_preservados": patrimonios,
+            "sugestoes_proximos_passos": sugestoes,
+            "fallback_utilizado": fallback,
+            "modelo": modelo,
+            "motivo": motivo,
+        }
+
+    def contingencia(motivo: str) -> dict[str, Any]:
+        texto, sugestoes = gerar_resposta_chat_contingencia(
+            destino, dias, ritmo_viagem, acompanhantes, preferencias_gastronomia, mensagem, codigo, clima_info, patrimonios
+        )
+        return resultado(texto, sugestoes, True, None, motivo)
+
+    if not _chave_api():
+        return contingencia("Chave GEMINI_API_KEY não configurada")
+
+    instrucoes = montar_instrucoes_chat(
+        destino, dias, estilo, ritmo_viagem, acompanhantes, preferencias_gastronomia, codigo, clima_info, patrimonios
+    )
+    conteudo = historico_para_conteudo(historico, mensagem)
+    try:
+        bruto, modelo = await asyncio.wait_for(
+            _gerar_texto(conteudo, _config_chat(instrucoes)), timeout=settings.TIMEOUT_GEMINI
+        )
+    except asyncio.TimeoutError:
+        motivo = f"Timeout na chamada ao Gemini (limite de {settings.TIMEOUT_GEMINI:g}s excedido)"
+    except Exception as exc:  # noqa: BLE001
+        motivo = f"Falha na API Gemini: {type(exc).__name__}"
+    else:
+        texto, sugestoes = extrair_sugestoes(preservar_patrimonios(limpar_formato_texto(bruto)))
+        if texto:
+            return resultado(texto, sugestoes or list(textos(codigo)["chat_sugestoes"]), False, modelo, None)
+        motivo = "Gemini devolveu resposta vazia"
+
+    logger.warning("Chat do roteiro em contingência: %s", motivo)
+    return contingencia(motivo)

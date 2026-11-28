@@ -3,6 +3,7 @@
 import asyncio
 import inspect
 import json
+import re
 import time
 import uuid
 from collections.abc import AsyncGenerator
@@ -64,6 +65,7 @@ from app.services.gpx_service import gerar_gpx_async
 from app.services.n8n_service import (
     agendar_despacho_roteiro_background,
     agendar_dlq_background,
+    despachar_evento_clima_n8n,
 )
 from app.services.postos_service import localizar_paradas_async, projetar_paradas
 from app.services.rota_service import calcular_rota_osrm_async
@@ -202,21 +204,25 @@ def _selecionar_patrimonios_destino(destino: str, mensagem: str) -> list[str]:
         if pat.lower() in texto_busca and pat not in encontrados:
             encontrados.append(pat)
 
-    if any(k in texto_busca for k in ("piripiri", "parnaiba", "parnaíba", "teresina", "piaui", "piauí", "pi")):
-        for padrao_pi in ("Parque Nacional de Sete Cidades", "Açude Caldeirão", "Delta do Parnaíba", "BR-343"):
-            if padrao_pi not in encontrados:
-                encontrados.append(padrao_pi)
-    elif "salvador" in texto_busca or "ba" in texto_busca:
-        for padrao_ba in ("Pelourinho", "Chapada Diamantina"):
-            if padrao_ba not in encontrados:
-                encontrados.append(padrao_ba)
-    elif "brasilia" in texto_busca or "brasília" in texto_busca or "df" in texto_busca:
-        for padrao_df in ("Congresso Nacional", "Catedral Metropolitana"):
-            if padrao_df not in encontrados:
-                encontrados.append(padrao_df)
+    # Região pela UF do destino ("Cidade - UF") ou por palavras inteiras, nunca por trechos soltos:
+    # buscar "pi"/"ba"/"df" em qualquer posição casava "Campinas", "Curitiba", "Bauru" etc.
+    achado_uf = re.search(r"-\s*([A-Za-z]{2})\s*$", destino.strip())
+    uf = achado_uf.group(1).upper() if achado_uf else ""
+    palavras = set(re.findall(r"\w+", texto_busca))
+    regioes = (
+        ("PI", {"piripiri", "parnaiba", "parnaíba", "teresina", "piaui", "piauí"},
+         ("Parque Nacional de Sete Cidades", "Açude Caldeirão", "Delta do Parnaíba", "BR-343")),
+        ("BA", {"salvador", "bahia"}, ("Pelourinho", "Chapada Diamantina")),
+        ("DF", {"brasilia", "brasília"}, ("Congresso Nacional", "Catedral Metropolitana")),
+    )
+    for sigla, chaves, padroes in regioes:
+        if uf == sigla or palavras & chaves:
+            encontrados.extend(p for p in padroes if p not in encontrados)
+            break
 
     if not encontrados:
-        encontrados = ["Parque Nacional de Sete Cidades", "Centro Histórico Cultural"]
+        cidade = re.sub(r"\s*-\s*[A-Za-z]{2}\s*$", "", destino.strip()) or "destino"
+        encontrados = [f"Centro Histórico de {cidade}"]
     return encontrados
 
 
@@ -679,6 +685,21 @@ async def planejar_roteiro(
                 user.id,
                 roteiro_response.model_dump(),
             )
+            # Evento EDA para o Workflow 4 (Open-Meteo + orientações Gemini), só com destino geocodificado
+            if not (lat_d == 0.0 and lon_d == 0.0):
+                logger.info("[BackgroundTasks][Clima] Evento agendado para o WF4: destino=%s", destino_formatado)
+                background_tasks.add_task(
+                    despachar_evento_clima_n8n,
+                    client,
+                    {
+                        "roteiro_id": roteiro_id,
+                        "destino": destino_formatado,
+                        "latitude": lat_d,
+                        "longitude": lon_d,
+                        "idioma": idioma,
+                        "dias": payload.dias_estadia,
+                    },
+                )
             tempo_total_ms = (time.perf_counter() - inicio_processamento) * 1000
             METRICAS_OPERACIONAIS["total_roteiros"] += 1
             latencias = METRICAS_OPERACIONAIS["latencias_recentes_ms"]
@@ -739,7 +760,7 @@ async def conversar_roteiro_chat(
                     idioma=str(resultado.get("idioma") or idioma),
                     destino=payload.destino,
                     roteiro_personalizado=resultado.get("roteiro_personalizado") or resultado.get("resposta"),
-                    patrimonios_preservados=resultado.get("patrimonios_preservados") or patrimonios,
+                    patrimonios_preservados=list(resultado.get("patrimonios_preservados", patrimonios) or []),
                     sugestoes_proximos_passos=resultado.get("sugestoes_proximos_passos") or [],
                     fallback_utilizado=bool(resultado.get("fallback_utilizado", False)),
                 )
